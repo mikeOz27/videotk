@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'videoteca-v3';
+const CACHE = 'videoteca-v4';
 const SUPABASE_LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
 const SHELL = [
   './',

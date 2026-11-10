@@ -538,7 +538,7 @@ $('exportBtn').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
   const link = el('a');
   link.href = URL.createObjectURL(blob);
-  link.download = `videoteca-${new Date().toISOString().slice(0, 10)}.json`;
+  link.download = `videotk-${new Date().toISOString().slice(0, 10)}.json`;
   document.body.append(link);
   link.click();
   link.remove();
@@ -556,7 +556,7 @@ ui.importFile.addEventListener('change', async () => {
       incoming = JSON.parse(await file.text());
       if (!Array.isArray(incoming)) throw new Error('formato');
     } catch {
-      return notify('Ese archivo no es una copia válida de Videoteca.', true);
+      return notify('Ese archivo no es una copia válida de VideoTk.', true);
     }
     const added = await uploadItems(incoming.map(sanitizeItem));
     notify(`Importación lista. Videos añadidos: ${added}.`);

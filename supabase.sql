@@ -1,4 +1,4 @@
--- Videoteca: pega esto en Supabase → SQL Editor → New query → Run.
+-- VideoTk: pega esto en Supabase → SQL Editor → New query → Run.
 -- Crea la tabla de videos y hace que cada usuario solo pueda ver y tocar los suyos.
 
 create table if not exists public.videos (

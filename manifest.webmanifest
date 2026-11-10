@@ -1,6 +1,6 @@
 {
-  "name": "Videoteca",
-  "short_name": "Videoteca",
+  "name": "VideoTk",
+  "short_name": "VideoTk",
   "description": "Guarda links de videos con preview y tu propia descripción.",
   "lang": "es",
   "start_url": "./",
