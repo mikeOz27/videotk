@@ -219,6 +219,31 @@ a.button {
 .cardactions { display: flex; margin-top: auto; }
 .cardactions button { flex: 1; min-width: 0; min-height: 38px; padding: 0; font-size: 15px; }
 
+/* Móvil: una tarjeta por fila, a todo el ancho; miniatura a la izquierda. */
+@media (max-width: 699px) {
+  .list { grid-template-columns: 1fr; gap: 10px; }
+  .card {
+    display: grid;
+    grid-template-columns: 42% minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr auto;
+    border-radius: 14px;
+  }
+  .card > a { display: contents; }
+  .card .thumb {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    aspect-ratio: auto;
+    min-height: 96px;
+  }
+  .card .ph { font-size: 26px; }
+  .card .meta { grid-column: 2; grid-row: 1; padding: 10px 12px 0; }
+  .card .source { font-size: 12px; }
+  .card .title { font-size: 15px; line-height: 1.3; -webkit-line-clamp: 2; }
+  .card .desc { grid-column: 2; grid-row: 2; padding: 4px 12px 0; font-size: 13px; line-height: 1.35; -webkit-line-clamp: 2; }
+  .card .cardactions { grid-column: 2; grid-row: 4; justify-content: flex-end; gap: 4px; padding: 4px 6px 6px; }
+  .card .cardactions button { flex: 0 0 44px; min-height: 40px; font-size: 16px; }
+}
+
 @media (min-width: 700px) {
   .list { gap: 14px; }
   .card { border-radius: 14px; }
