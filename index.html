@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Videoteca</title>
+  <meta name="description" content="Guarda links de videos con preview y tu propia descripción.">
+  <meta name="theme-color" content="#14151a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Videoteca">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app">
+    <header class="top">
+      <h1>Videoteca</h1>
+      <div class="topactions">
+        <button id="menuBtn" class="ghost" type="button" aria-haspopup="dialog">Copia</button>
+        <button id="newBtn" class="primary" type="button" aria-haspopup="dialog">+ Nuevo</button>
+      </div>
+    </header>
+
+    <p id="notice" class="notice" role="status" hidden></p>
+
+    <section aria-label="Videos guardados">
+      <div class="listhead">
+        <input id="search" type="search" placeholder="Buscar en tus videos" aria-label="Buscar en tus videos">
+        <span id="count" class="count"></span>
+      </div>
+      <ul id="list" class="list"></ul>
+      <p id="empty" class="empty" hidden></p>
+    </section>
+  </main>
+
+  <dialog id="newDialog" aria-labelledby="newTitle">
+    <form id="addForm" class="composer" autocomplete="off">
+      <h2 id="newTitle">Nuevo video</h2>
+      <label for="urlInput">Link del video</label>
+      <div class="row">
+        <input id="urlInput" type="url" inputmode="url" placeholder="https://…" required>
+        <button id="pasteBtn" class="secondary" type="button">Pegar</button>
+      </div>
+
+      <article id="preview" class="preview" hidden>
+        <div class="thumb"><img id="previewImg" alt="" referrerpolicy="no-referrer" hidden><span id="previewPh" class="ph">▶</span></div>
+        <div class="meta">
+          <p id="previewSource" class="source"></p>
+          <p id="previewTitle" class="title"></p>
+        </div>
+      </article>
+
+      <label for="descInput">Descripción</label>
+      <textarea id="descInput" rows="2" placeholder="¿Por qué guardas este video?"></textarea>
+
+      <p id="status" class="status" role="status"></p>
+      <div class="actions">
+        <button id="cancelNew" class="ghost" type="button">Cancelar</button>
+        <button id="saveBtn" class="primary" type="submit">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="viewer" class="viewer" aria-labelledby="viewerTitle">
+    <div id="player" class="player"></div>
+    <div class="viewerbody">
+      <p id="viewerSource" class="source"></p>
+      <p id="viewerTitle" class="title"></p>
+      <p id="viewerDesc" class="viewerdesc"></p>
+      <div class="actions">
+        <button id="closeViewer" class="ghost" type="button">Cerrar</button>
+        <a id="viewerOpen" class="button primary" target="_blank" rel="noopener noreferrer">Abrir en YouTube</a>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="editDialog">
+    <form id="editForm" method="dialog">
+      <h2>Editar descripción</h2>
+      <p id="editTitle" class="source"></p>
+      <textarea id="editDesc" rows="4" aria-label="Descripción"></textarea>
+      <div class="actions">
+        <button class="ghost" value="cancel" type="submit">Cancelar</button>
+        <button class="primary" value="ok" type="submit">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="backupDialog">
+    <h2>Copia de seguridad</h2>
+    <p class="hint">Tus videos solo están en este teléfono. Exporta el archivo para guardarlo o pasarlo a tu otro móvil; al importar se añaden los que falten.</p>
+    <div class="stack">
+      <button id="exportBtn" class="primary" type="button">Exportar archivo</button>
+      <button id="importBtn" class="secondary" type="button">Importar archivo</button>
+      <button id="closeBackup" class="ghost" type="button">Cerrar</button>
+    </div>
+    <input id="importFile" type="file" accept="application/json,.json" hidden>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
