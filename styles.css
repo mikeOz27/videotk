@@ -100,6 +100,33 @@ button:disabled { opacity: .55; cursor: default; }
   background: var(--surface);
 }
 .authcard .primary { width: 100%; }
+/* SweetAlert2 con los colores de la app (claro y oscuro) */
+.swal2-container { padding: 16px; }
+.swal2-popup.swal-vt {
+  width: min(400px, 100%);
+  padding: 20px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+}
+.swal-vt .swal2-title { padding: 8px 8px 0; color: var(--text); font-size: 20px; }
+.swal-vt .swal2-html-container {
+  margin: 8px 8px 0;
+  color: var(--muted);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.swal-vt .swal2-icon { margin-top: 8px; transform: scale(.8); }
+.swal-vt .swal2-actions { width: 100%; gap: 8px; margin-top: 20px; flex-wrap: nowrap; }
+.swal-vt .swal2-actions button { flex: 1; margin: 0; }
+.danger-solid {
+  border: 0;
+  background: var(--danger);
+  color: var(--surface);
+  font-weight: 600;
+}
+
 .authswitch { margin: 14px 0 0; text-align: center; color: var(--muted); font-size: 14px; }
 .linkbtn {
   min-height: 0;

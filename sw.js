@@ -1,7 +1,9 @@
 'use strict';
 
-const CACHE = 'videoteca-v4';
+const CACHE = 'videoteca-v5';
 const SUPABASE_LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
+const SWAL_LIB = 'https://cdn.jsdelivr.net/npm/sweetalert2@11.14.5/dist/sweetalert2.all.min.js';
+const PINNED = [SUPABASE_LIB, SWAL_LIB];
 const SHELL = [
   './',
   'index.html',
@@ -12,7 +14,7 @@ const SHELL = [
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/apple-touch-icon.png',
-  SUPABASE_LIB,
+  ...PINNED,
 ];
 
 self.addEventListener('install', (event) => {
@@ -31,9 +33,9 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
 
-  // La librería tiene versión fija: se sirve desde la caché.
-  if (request.url === SUPABASE_LIB) {
-    event.respondWith(caches.match(SUPABASE_LIB).then((cached) => cached || fetch(request)));
+  // Las librerías tienen versión fija: se sirven desde la caché.
+  if (PINNED.includes(request.url)) {
+    event.respondWith(caches.match(request.url).then((cached) => cached || fetch(request)));
     return;
   }
 

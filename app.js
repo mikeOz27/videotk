@@ -451,9 +451,39 @@ function render() {
   ui.empty.textContent = items.length ? 'Ningún video coincide con la búsqueda.' : 'Pulsa «+ Nuevo» para guardar tu primer video.';
 }
 
+// Pregunta Sí/No con SweetAlert2; si la librería no cargó, usa la del navegador.
+// Se usa `text` (no `html`) para que el título del video nunca se interprete como HTML.
+async function askConfirm({ title, text, confirmText, danger = false }) {
+  if (!window.Swal) return confirm(text ? `${title}\n\n${text}` : title);
+  const result = await window.Swal.fire({
+    title,
+    text,
+    icon: danger ? 'warning' : 'question',
+    showCancelButton: true,
+    confirmButtonText: confirmText,
+    cancelButtonText: 'Cancelar',
+    reverseButtons: true,
+    focusCancel: danger,
+    buttonsStyling: false,
+    customClass: {
+      popup: 'swal-vt',
+      confirmButton: danger ? 'danger-solid' : 'primary',
+      cancelButton: 'ghost',
+    },
+  });
+  return result.isConfirmed;
+}
+
 async function removeItem(id) {
   const item = items.find((entry) => entry.id === id);
-  if (!item || !confirm(`¿Borrar "${item.title || item.url}"?`)) return;
+  if (!item) return;
+  const ok = await askConfirm({
+    title: '¿Eliminar este video?',
+    text: item.title || item.url,
+    confirmText: 'Sí, eliminar',
+    danger: true,
+  });
+  if (!ok) return;
   const { error } = await run(db.from('videos').delete().eq('id', id));
   if (error) return notify('No se pudo borrar. Revisa tu conexión.', true);
   items = items.filter((entry) => entry.id !== id);
@@ -566,7 +596,12 @@ ui.importFile.addEventListener('change', async () => {
 });
 
 async function logout() {
-  if (!confirm('¿Cerrar sesión en este dispositivo?')) return;
+  const ok = await askConfirm({
+    title: '¿Cerrar sesión?',
+    text: 'Tus videos siguen guardados en tu cuenta.',
+    confirmText: 'Sí, salir',
+  });
+  if (!ok) return;
   if (ui.backupDialog.open) ui.backupDialog.close();
   try { localStorage.removeItem(cacheKey()); } catch { /* nada que borrar */ }
   await run(db.auth.signOut({ scope: 'local' }));
