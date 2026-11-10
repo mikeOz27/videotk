@@ -16,7 +16,7 @@ const ui = {
   previewPh: $('previewPh'), previewSource: $('previewSource'), previewTitle: $('previewTitle'),
   search: $('search'), count: $('count'), list: $('list'), empty: $('empty'),
   editDialog: $('editDialog'), editForm: $('editForm'), editTitle: $('editTitle'), editDesc: $('editDesc'),
-  backupDialog: $('backupDialog'), importFile: $('importFile'),
+  accountDialog: $('accountDialog'), settingsDialog: $('settingsDialog'), importFile: $('importFile'),
   newDialog: $('newDialog'), notice: $('notice'),
   viewer: $('viewer'), player: $('player'), viewerSource: $('viewerSource'),
   viewerTitle: $('viewerTitle'), viewerDesc: $('viewerDesc'), viewerOpen: $('viewerOpen'),
@@ -250,23 +250,31 @@ async function renameCategory(id, rawName) {
   return { ok: true };
 }
 
-// Al borrar una categoría, la base deja sus videos sin categoría (no borra los videos).
+// Solo se puede borrar una categoría sin videos (la base también lo impide).
 async function deleteCategory(id) {
   const cat = catById(id);
   if (!cat) return;
   const count = countIn(id);
+  if (count) {
+    return showMessage({
+      title: `«${cat.name}» está en uso`,
+      text: `La ${count === 1 ? 'usa 1 video' : `usan ${count} videos`}. Cámbiale${count === 1 ? '' : 's'} la categoría con el lápiz y luego podrás borrarla.`,
+    });
+  }
   const ok = await askConfirm({
     title: `¿Borrar «${cat.name}»?`,
-    text: !count ? 'No tiene videos.'
-      : `${count === 1 ? 'Su video queda' : `Sus ${count} videos quedan`} sin categoría. No se borra ningún video.`,
+    text: 'No tiene videos.',
     confirmText: 'Sí, borrar',
     danger: true,
   });
   if (!ok) return;
   const { error } = await run(db.from('categories').delete().eq('id', id));
-  if (error) return setCatsStatus('No se pudo borrar. Revisa tu conexión.', true);
+  if (error) {
+    // 23503: otro teléfono le puso un video mientras tanto.
+    if (error.code === '23503') { await loadItems(); return setCatsStatus(`«${cat.name}» tiene videos: no se puede borrar.`, true); }
+    return setCatsStatus('No se pudo borrar. Revisa tu conexión.', true);
+  }
   cats = cats.filter((entry) => entry.id !== id);
-  items.forEach((item) => { if (item.categoryId === id) item.categoryId = ''; });
   writeCache();
   setCatsStatus(`Se borró «${cat.name}».`);
   refreshCategoryUi();
@@ -355,14 +363,21 @@ function renderFilters() {
   const nodes = [chip(`Todas · ${items.length}`, filter === null, () => setFilter(null))];
   for (const cat of cats) nodes.push(chip(`${cat.name} · ${countIn(cat.id)}`, filter === cat.id, () => setFilter(cat.id)));
   if (cats.length && uncategorized) nodes.push(chip(`Sin categoría · ${uncategorized}`, filter === '', () => setFilter('')));
-  const manage = chip('', null, openCategories, 'chip add');
-  manage.append(icon('tag'), cats.length ? ' Categorías' : ' Crear categorías');
-  nodes.push(manage);
   ui.filters.replaceChildren(...nodes);
-  ui.filters.hidden = false;
+  updateFilterFade();
   const pressed = ui.filters.querySelector('[aria-pressed="true"]');
   if (pressed && filter !== null) pressed.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
+
+// Difumina los bordes de la fila de filtros solo donde hay más para deslizar.
+function updateFilterFade() {
+  const row = ui.filters;
+  row.classList.toggle('more-left', row.scrollLeft > 2);
+  row.classList.toggle('more-right', row.scrollLeft + row.clientWidth < row.scrollWidth - 2);
+}
+ui.filters.addEventListener('scroll', updateFilterFade, { passive: true });
+window.addEventListener('resize', updateFilterFade);
+$('catsBtn').addEventListener('click', () => openCategories());
 
 /* Ventana "Tus categorías" */
 
@@ -390,11 +405,11 @@ function renderCatsList() {
     });
     const count = countIn(cat.id);
     const meta = el('span', 'catcount', count === 1 ? '1 video' : `${count} videos`);
-    const remove = el('button', 'danger');
+    const remove = el('button', count ? 'danger locked' : 'danger');
     remove.type = 'button';
     remove.append(icon('trash'));
-    remove.setAttribute('aria-label', `Borrar la categoría ${cat.name}`);
-    remove.title = 'Borrar';
+    remove.setAttribute('aria-label', count ? `${cat.name} está en uso y no se puede borrar` : `Borrar la categoría ${cat.name}`);
+    remove.title = count ? 'En uso: no se puede borrar' : 'Borrar';
     remove.addEventListener('click', () => deleteCategory(cat.id));
     row.append(input, meta, remove);
     return row;
@@ -759,6 +774,13 @@ function render() {
     : 'No hay videos en esta categoría.';
 }
 
+// Las ventanas abiertas con showModal() quedan por encima de todo lo demás de la página,
+// así que la alerta se mete dentro de la ventana abierta para que se vea encima.
+function alertTarget() {
+  const open = [...document.querySelectorAll('dialog[open]')];
+  return open.length ? open[open.length - 1] : 'body';
+}
+
 // Pregunta Sí/No con SweetAlert2; si la librería no cargó, usa la del navegador.
 // Se usa `text` (no `html`) para que el título del video nunca se interprete como HTML.
 async function askConfirm({ title, text, confirmText, danger = false }) {
@@ -772,8 +794,7 @@ async function askConfirm({ title, text, confirmText, danger = false }) {
     cancelButtonText: 'Cancelar',
     reverseButtons: true,
     focusCancel: danger,
-    // Dentro de una ventana abierta, la alerta tiene que ir en ella para verse encima.
-    target: document.querySelector('dialog[open]') || 'body',
+    target: alertTarget(),
     buttonsStyling: false,
     customClass: {
       popup: 'swal-vt',
@@ -782,6 +803,20 @@ async function askConfirm({ title, text, confirmText, danger = false }) {
     },
   });
   return result.isConfirmed;
+}
+
+// Aviso con un solo botón.
+async function showMessage({ title, text }) {
+  if (!window.Swal) { alert(`${title}\n\n${text}`); return; }
+  await window.Swal.fire({
+    title,
+    text,
+    icon: 'info',
+    confirmButtonText: 'Entendido',
+    target: alertTarget(),
+    buttonsStyling: false,
+    customClass: { popup: 'swal-vt', confirmButton: 'primary' },
+  });
 }
 
 async function removeItem(id) {
@@ -894,9 +929,51 @@ ui.editForm.addEventListener('submit', async (event) => {
   render();
 });
 
-$('menuBtn').addEventListener('click', () => ui.backupDialog.showModal());
-$('closeBackup').addEventListener('click', () => ui.backupDialog.close());
+$('menuBtn').addEventListener('click', () => ui.accountDialog.showModal());
+$('closeAccount').addEventListener('click', () => ui.accountDialog.close());
+$('settingsBtn').addEventListener('click', () => { renderTheme(); ui.settingsDialog.showModal(); });
+$('closeSettings').addEventListener('click', () => ui.settingsDialog.close());
 $('importBtn').addEventListener('click', () => ui.importFile.click());
+
+/* ---------- Tema: sistema, claro u oscuro ---------- */
+
+const THEME_KEY = 'videotk.theme';
+const themeButtons = [...document.querySelectorAll('[data-theme-choice]')];
+
+function savedTheme() {
+  try {
+    const value = localStorage.getItem(THEME_KEY);
+    return value === 'light' || value === 'dark' ? value : 'system';
+  } catch {
+    return 'system';
+  }
+}
+
+function applyTheme(choice) {
+  if (choice === 'system') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = choice;
+  // Color de la barra del sistema (Android) acorde al fondo.
+  const dark = choice === 'dark' || (choice === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#14151a' : '#f4f4f1';
+}
+
+function renderTheme() {
+  const choice = savedTheme();
+  themeButtons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.themeChoice === choice)));
+}
+
+themeButtons.forEach((button) => button.addEventListener('click', () => {
+  const choice = button.dataset.themeChoice;
+  try {
+    if (choice === 'system') localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, choice);
+  } catch { /* se aplica igual, aunque no se recuerde */ }
+  applyTheme(choice);
+  renderTheme();
+}));
+
+applyTheme(savedTheme());
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(savedTheme()));
 
 $('exportBtn').addEventListener('click', () => {
   const copy = items.map(({ categoryName, ...item }) => ({ ...item, categoryName: catName(item.categoryId) }));
@@ -914,7 +991,7 @@ ui.importFile.addEventListener('change', async () => {
   const [file] = ui.importFile.files;
   ui.importFile.value = '';
   if (!file) return;
-  ui.backupDialog.close();
+  ui.settingsDialog.close();
   try {
     let incoming;
     try {
@@ -931,20 +1008,20 @@ ui.importFile.addEventListener('change', async () => {
 });
 
 async function logout() {
+  // Se cierra la ventana "Tu cuenta" antes de preguntar, para que la alerta nunca quede detrás.
+  if (ui.accountDialog.open) ui.accountDialog.close();
   const ok = await askConfirm({
     title: '¿Cerrar sesión?',
     text: 'Tus videos siguen guardados en tu cuenta.',
     confirmText: 'Sí, salir',
   });
   if (!ok) return;
-  if (ui.backupDialog.open) ui.backupDialog.close();
   try { localStorage.removeItem(cacheKey()); localStorage.removeItem(catsCacheKey()); } catch { /* nada que borrar */ }
   await run(db.auth.signOut({ scope: 'local' }));
   await applySession(null);
 }
 
 $('logoutBtn').addEventListener('click', logout);
-$('logoutTopBtn').addEventListener('click', logout);
 
 /* ---------- Login ---------- */
 
@@ -958,6 +1035,27 @@ function setAuthStatus(message, isError = false) {
   }
 }
 ui.authForm.addEventListener('animationend', () => ui.authForm.classList.remove('shake'));
+
+// La etiqueta del campo sube cuando tiene texto. El autocompletado de iOS a veces
+// rellena el campo sin avisar, así que además se revisa durante unos segundos.
+const authInputs = [ui.authEmail, ui.authPassword, $('authConfirm')];
+function syncFilled() {
+  authInputs.forEach((input) => input.parentElement.classList.toggle('filled', input.value !== ''));
+}
+authInputs.forEach((input) => {
+  ['input', 'change', 'focus', 'blur', 'keyup'].forEach((type) => input.addEventListener(type, syncFilled));
+  input.addEventListener('animationstart', (event) => {
+    if (event.animationName === 'autofillIn') input.parentElement.classList.add('filled');
+  });
+});
+function watchAutofill() {
+  let checks = 0;
+  clearInterval(watchAutofill.timer);
+  watchAutofill.timer = setInterval(() => {
+    syncFilled();
+    if (++checks >= 20 || ui.authView.hidden) clearInterval(watchAutofill.timer);
+  }, 250);
+}
 
 function setAuthBusy(busy) {
   ui.authBtn.disabled = busy;
@@ -976,13 +1074,14 @@ $('authEye').addEventListener('click', (event) => {
 function showView(loggedIn) {
   ui.authView.hidden = loggedIn;
   ui.appView.hidden = !loggedIn;
+  if (!loggedIn) watchAutofill();
 }
 
 async function applySession(session) {
   const next = session ? session.user : null;
   if ((next && next.id) === (user && user.id)) return;
   user = next;
-  [ui.newDialog, ui.viewer, ui.editDialog, ui.backupDialog, ui.catsDialog].forEach((dialog) => { if (dialog.open) dialog.close(); });
+  [ui.newDialog, ui.viewer, ui.editDialog, ui.accountDialog, ui.settingsDialog, ui.catsDialog].forEach((dialog) => { if (dialog.open) dialog.close(); });
 
   if (!user) {
     items = [];
@@ -1016,6 +1115,7 @@ function setAuthMode(signup) {
   authConfirmRow.inert = !signup;
   authConfirm.required = signup;
   authConfirm.value = '';
+  syncFilled();
   ui.authPassword.autocomplete = signup ? 'new-password' : 'current-password';
   ui.authBtn.querySelector('.label').textContent = signup ? 'Crear cuenta' : 'Entrar';
   $('authTitle').textContent = signup ? 'Crea tu cuenta' : 'Bienvenido de nuevo';
@@ -1068,6 +1168,7 @@ ui.authForm.addEventListener('submit', async (event) => {
     const exists = data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0;
     setAuthMode(false);
     ui.authPassword.value = '';
+    syncFilled();
     setAuthStatus(exists
       ? 'Ese correo ya tiene cuenta. Entra con tu contraseña.'
       : 'Te enviamos un correo para confirmar la cuenta. Ábrelo y luego entra aquí.', exists);
@@ -1076,6 +1177,7 @@ ui.authForm.addEventListener('submit', async (event) => {
 
   ui.authPassword.value = '';
   setAuthMode(false);
+  syncFilled();
   await applySession(data.session);
 });
 

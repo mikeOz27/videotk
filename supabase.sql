@@ -78,11 +78,12 @@ revoke all on public.categories from anon;
 grant select, insert, update, delete on public.categories to authenticated;
 
 -- El video solo puede apuntar a una categoría de su mismo usuario.
--- Si se borra la categoría, el video queda "Sin categoría" (no se borra el video).
+-- Una categoría que tiene videos no se puede borrar: primero hay que cambiarlos de categoría.
+-- ("no action" en vez de "restrict" para que al borrar la cuenta se borren videos y categorías sin error.)
 alter table public.videos add column if not exists category_id uuid;
 alter table public.videos drop constraint if exists videos_category_fk;
 alter table public.videos add constraint videos_category_fk
-  foreign key (category_id, user_id) references public.categories (id, user_id) on delete set null (category_id);
+  foreign key (category_id, user_id) references public.categories (id, user_id) on delete no action;
 create index if not exists videos_category_idx on public.videos (category_id);
 
 -- Pasa a la tabla nueva las categorías escritas como texto en versiones anteriores.

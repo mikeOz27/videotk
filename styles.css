@@ -11,8 +11,10 @@
   --danger: #b3261e;
 }
 
+/* Tema oscuro: si el sistema lo pide (y no elegiste "Claro"), o si elegiste "Oscuro". */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #14151a;
     --surface: #1f2128;
     --field: #2a2c35;
@@ -24,6 +26,19 @@
     --danger: #ff8a80;
   }
 }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14151a;
+  --surface: #1f2128;
+  --field: #2a2c35;
+  --text: #f2f2ef;
+  --muted: #a3a7b0;
+  --line: #33363f;
+  --accent: #ff6a4d;
+  --on-accent: #1a0b07;
+  --danger: #ff8a80;
+}
+:root[data-theme="light"] { color-scheme: light; }
 
 * { box-sizing: border-box; }
 
@@ -83,8 +98,15 @@ button:disabled { opacity: .55; cursor: default; }
 
 .topactions { display: flex; gap: 4px; flex-shrink: 0; }
 .topactions button { white-space: nowrap; }
+.top { gap: 8px; }
 @media (max-width: 420px) {
   .topactions button { padding-left: 10px; padding-right: 10px; }
+}
+@media (max-width: 359px) {
+  .top h1 { font-size: 22px; }
+  .topactions { gap: 0; }
+  .topactions button { padding-left: 8px; padding-right: 8px; }
+  .topactions .iconbtn { width: 40px; }
 }
 
 /* ---------- Login ---------- */
@@ -107,11 +129,16 @@ button:disabled { opacity: .55; cursor: default; }
 }
 .auth[hidden] { display: none; }
 @media (prefers-color-scheme: dark) {
-  .auth {
+  :root:not([data-theme="light"]) .auth {
     --glass: rgba(24, 25, 33, .62);
     --glass-line: rgba(255, 255, 255, .10);
     --scene: #0e0f16;
   }
+}
+:root[data-theme="dark"] .auth {
+  --glass: rgba(24, 25, 33, .62);
+  --glass-line: rgba(255, 255, 255, .10);
+  --scene: #0e0f16;
 }
 
 /* Manchas de color que flotan detrás de la tarjeta */
@@ -197,7 +224,20 @@ button:disabled { opacity: .55; cursor: default; }
   transition: transform .2s ease, color .2s ease;
 }
 .field input:focus + label,
-.field input:not(:placeholder-shown) + label { transform: translateY(-11px) scale(.78); color: var(--g2); font-weight: 600; }
+.field input:not(:placeholder-shown) + label,
+.field.filled label { transform: translateY(-11px) scale(.78); color: var(--g2); font-weight: 600; }
+/* Autocompletado de Safari/Chrome: la etiqueta también sube (reglas separadas:
+   si un navegador no entiende un selector, ignora solo esa regla). */
+.field input:-webkit-autofill + label { transform: translateY(-11px) scale(.78); color: var(--g2); font-weight: 600; }
+.field input:autofill + label { transform: translateY(-11px) scale(.78); color: var(--g2); font-weight: 600; }
+/* Sin el fondo amarillo/azul del autocompletado, y con un aviso para el código. */
+.field input:-webkit-autofill {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 100px var(--field) inset;
+  caret-color: var(--text);
+  animation: autofillIn 1ms;
+}
+@keyframes autofillIn { from { opacity: 1; } to { opacity: 1; } }
 .fieldicon {
   position: absolute;
   top: 18px;
@@ -408,12 +448,45 @@ a.button {
 .chips { display: flex; gap: 6px; }
 .chips[hidden] { display: none; }
 .chips.wrap { flex-wrap: wrap; margin-top: 8px; }
+/* Fila de filtros: los chips se deslizan; el botón Categorías queda fijo a la derecha. */
+.filterbar { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
 .chips.filters {
-  margin: 0 -16px 12px;
-  padding: 2px 16px 4px;
+  flex: 1;
+  min-width: 0;
+  margin-left: -16px;
+  padding: 2px 4px 4px 16px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 16px;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+}
+.chips.filters.more-right { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.chips.filters.more-left { -webkit-mask-image: linear-gradient(to right, transparent 4px, #000 32px); mask-image: linear-gradient(to right, transparent 4px, #000 32px); }
+.chips.filters.more-left.more-right {
+  -webkit-mask-image: linear-gradient(to right, transparent 4px, #000 32px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, transparent 4px, #000 32px, #000 calc(100% - 28px), transparent);
+}
+.catsbtn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px dashed var(--accent);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.catsbtn .icon { width: 16px; height: 16px; }
+/* En pantallas muy estrechas el botón queda solo con el icono. */
+@media (max-width: 359px) {
+  .catsbtn { width: 40px; padding: 0; justify-content: center; }
+  .catsbtn span { display: none; }
 }
 .chips.filters::-webkit-scrollbar { display: none; }
 .chip {
@@ -459,6 +532,33 @@ a.button {
 .catrow input { flex: 1; min-width: 0; }
 .catcount { flex-shrink: 0; color: var(--muted); font-size: 13px; white-space: nowrap; }
 .catrow .danger { display: grid; place-items: center; flex: 0 0 44px; padding: 0; }
+.catrow .danger.locked { color: var(--muted); opacity: .45; }
+
+/* Botón de configuración (solo icono) */
+.iconbtn { display: grid; place-items: center; width: 44px; padding: 0; }
+.iconbtn .icon { width: 22px; height: 22px; }
+
+/* Tu cuenta */
+.accountemail { margin: -10px 0 16px; font-weight: 600; overflow-wrap: anywhere; }
+#accountDialog .danger-solid { min-height: 48px; border-radius: 12px; }
+
+/* Configuración */
+#settingsDialog { width: min(92vw, 440px); max-height: 88vh; overflow-y: auto; }
+.setting { padding: 14px 0; border-top: 1px solid var(--line); }
+.setting:first-of-type { border-top: 0; padding-top: 4px; }
+.setting h3 { margin: 0 0 10px; font-size: 15px; }
+.setting .hint { margin: 10px 0 0; }
+.setting .stack { margin-top: 12px; }
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--field);
+}
+.segmented button { min-height: 40px; border-radius: 10px; background: transparent; color: var(--muted); font-weight: 600; }
+.segmented button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
 .catrow .icon { width: 20px; height: 20px; }
 
 .list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
@@ -518,6 +618,16 @@ a.button {
   .card .source { font-size: 13px; }
   .card .title { font-size: 15px; line-height: 1.3; }
   .desc { padding: 4px 12px 0; font-size: 14px; line-height: 1.35; }
+}
+
+/* Tablet: 3 columnas para que las tarjetas no queden tan apretadas. */
+@media (min-width: 700px) and (max-width: 1023px) {
+  .list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* Pantallas táctiles (tablet, teléfono en horizontal): botones cómodos para el dedo. */
+@media (min-width: 700px) and (pointer: coarse) {
+  .cardactions button { min-height: 46px; }
+  .cardactions .icon { width: 22px; height: 22px; }
 }
 
 .empty { padding: 28px 12px; text-align: center; color: var(--muted); }
