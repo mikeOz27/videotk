@@ -81,7 +81,38 @@ button:disabled { opacity: .55; cursor: default; }
 .ghost { background: transparent; color: var(--muted); }
 .danger { background: transparent; color: var(--danger); }
 
-.topactions { display: flex; gap: 4px; }
+.topactions { display: flex; gap: 4px; flex-shrink: 0; }
+.topactions button { white-space: nowrap; }
+@media (max-width: 420px) {
+  .topactions button { padding-left: 10px; padding-right: 10px; }
+}
+
+.auth {
+  max-width: 400px;
+  margin: 0 auto;
+  padding: calc(env(safe-area-inset-top) + 48px) 16px calc(env(safe-area-inset-bottom) + 32px);
+}
+.auth h1 { margin-bottom: 16px; text-align: center; }
+.authcard {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.authcard .primary { width: 100%; }
+.authswitch { margin: 14px 0 0; text-align: center; color: var(--muted); font-size: 14px; }
+.linkbtn {
+  min-height: 0;
+  padding: 4px 2px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+#accountEmail { margin-bottom: 8px; }
 
 a.button {
   display: inline-flex;

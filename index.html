@@ -16,11 +16,32 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main class="app">
+  <section id="authView" class="auth" hidden>
+    <h1>Videoteca</h1>
+    <form id="authForm" class="authcard">
+      <label for="authEmail">Correo</label>
+      <input id="authEmail" type="email" autocomplete="username" inputmode="email" required>
+      <label for="authPassword">Contraseña</label>
+      <input id="authPassword" type="password" autocomplete="current-password" minlength="6" required>
+      <div id="authConfirmRow" hidden>
+        <label for="authConfirm">Repite la contraseña</label>
+        <input id="authConfirm" type="password" autocomplete="new-password" minlength="6">
+      </div>
+      <p id="authStatus" class="status" role="status"></p>
+      <button id="authBtn" class="primary" type="submit">Entrar</button>
+      <p class="authswitch">
+        <span id="authSwitchText">¿No tienes cuenta?</span>
+        <button id="authSwitch" class="linkbtn" type="button">Crear cuenta</button>
+      </p>
+    </form>
+  </section>
+
+  <main id="appView" class="app" hidden>
     <header class="top">
       <h1>Videoteca</h1>
       <div class="topactions">
-        <button id="menuBtn" class="ghost" type="button" aria-haspopup="dialog">Copia</button>
+        <button id="menuBtn" class="ghost" type="button" aria-haspopup="dialog">Cuenta</button>
+        <button id="logoutTopBtn" class="ghost" type="button">Salir</button>
         <button id="newBtn" class="primary" type="button" aria-haspopup="dialog">+ Nuevo</button>
       </div>
     </header>
@@ -91,16 +112,20 @@
   </dialog>
 
   <dialog id="backupDialog">
-    <h2>Copia de seguridad</h2>
-    <p class="hint">Tus videos solo están en este teléfono. Exporta el archivo para guardarlo o pasarlo a tu otro móvil; al importar se añaden los que falten.</p>
+    <h2>Tu cuenta</h2>
+    <p id="accountEmail" class="source"></p>
+    <p class="hint">Tus videos se guardan en tu cuenta y se ven en todos tus móviles. Si quieres, exporta un archivo de respaldo; al importar se añaden los que falten.</p>
     <div class="stack">
-      <button id="exportBtn" class="primary" type="button">Exportar archivo</button>
+      <button id="exportBtn" class="secondary" type="button">Exportar archivo</button>
       <button id="importBtn" class="secondary" type="button">Importar archivo</button>
+      <button id="logoutBtn" class="danger" type="button">Cerrar sesión</button>
       <button id="closeBackup" class="ghost" type="button">Cerrar</button>
     </div>
     <input id="importFile" type="file" accept="application/json,.json" hidden>
   </dialog>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

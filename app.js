@@ -1,9 +1,14 @@
 'use strict';
 
-const STORAGE_KEY = 'videoteca.items.v1';
+const CONFIG = window.VIDEOTECA_CONFIG || {};
+const LEGACY_KEY = 'videoteca.items.v1'; // videos guardados antes de tener cuenta
+const COLUMNS = 'id,url,title,source,thumbnail,description,created_at';
 const $ = (id) => document.getElementById(id);
 
 const ui = {
+  authView: $('authView'), appView: $('appView'), authForm: $('authForm'), authEmail: $('authEmail'),
+  authPassword: $('authPassword'), authBtn: $('authBtn'), authStatus: $('authStatus'),
+  accountEmail: $('accountEmail'),
   form: $('addForm'), url: $('urlInput'), paste: $('pasteBtn'), desc: $('descInput'),
   save: $('saveBtn'), status: $('status'), preview: $('preview'), previewImg: $('previewImg'),
   previewPh: $('previewPh'), previewSource: $('previewSource'), previewTitle: $('previewTitle'),
@@ -15,32 +20,104 @@ const ui = {
   viewerTitle: $('viewerTitle'), viewerDesc: $('viewerDesc'), viewerOpen: $('viewerOpen'),
 };
 
-let items = load();
+let db = null;           // cliente de Supabase
+let user = null;         // usuario con sesión iniciada
+let items = [];
 let draft = null;        // preview del link que se está escribiendo
 let previewToken = 0;    // descarta respuestas de links anteriores
 let previewPending = null;
 let editingId = null;
+let sharedPending = '';  // link compartido desde otra app antes de iniciar sesión
 
-/* ---------- Almacenamiento ---------- */
+/* ---------- Base de datos ---------- */
 
-function load() {
+// Las consultas de Supabase devuelven { data, error }; esto cubre también los fallos de red.
+async function run(query) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    return await query;
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+// Copia en el teléfono para abrir la lista rápido y verla sin conexión.
+function cacheKey() {
+  return `videoteca.cache.${user.id}`;
+}
+
+function readCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(cacheKey()) || '[]');
     return Array.isArray(parsed) ? parsed.map(sanitizeItem).filter(Boolean) : [];
   } catch {
     return [];
   }
 }
 
-function persist() {
+function writeCache() {
+  try { localStorage.setItem(cacheKey(), JSON.stringify(items)); } catch { /* sin espacio: no es grave */ }
+}
+
+function fromRow(row) {
+  return sanitizeItem({ ...row, createdAt: Date.parse(row.created_at) });
+}
+
+function toRow(item) {
+  return {
+    user_id: user.id,
+    url: item.url,
+    title: item.title,
+    source: item.source,
+    thumbnail: item.thumbnail,
+    description: item.description,
+  };
+}
+
+async function loadItems() {
+  items = readCache();
+  render();
+  const { data, error } = await run(db.from('videos').select(COLUMNS).order('created_at', { ascending: false }));
+  if (error) {
+    notify('Sin conexión con tu cuenta: se muestra la última copia de este teléfono.', true);
+    return;
+  }
+  items = data.map(fromRow).filter(Boolean);
+  writeCache();
+  render();
+}
+
+// Sube los videos que no estén ya en la cuenta. Devuelve cuántos subió.
+async function uploadItems(list) {
+  const known = new Set(items.map((item) => videoKey(item.url)));
+  const rows = [];
+  for (const item of list) {
+    if (!item || known.has(videoKey(item.url))) continue;
+    known.add(videoKey(item.url));
+    rows.push({ ...toRow(item), created_at: new Date(item.createdAt).toISOString() });
+  }
+  if (!rows.length) return 0;
+  const { error } = await run(db.from('videos').upsert(rows, { onConflict: 'user_id,url', ignoreDuplicates: true }));
+  if (error) throw error;
+  await loadItems();
+  return rows.length;
+}
+
+// Los videos guardados antes de tener login se ofrecen para subir una sola vez.
+async function migrateLegacy() {
+  let legacy = [];
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    return true;
+    const parsed = JSON.parse(localStorage.getItem(LEGACY_KEY) || '[]');
+    legacy = Array.isArray(parsed) ? parsed.map(sanitizeItem).filter(Boolean) : [];
+  } catch { /* datos dañados: se ignoran */ }
+  if (!legacy.length) return;
+  if (!confirm(`Hay ${legacy.length} videos guardados solo en este teléfono. ¿Subirlos a tu cuenta?`)) return;
+  try {
+    const added = await uploadItems(legacy);
+    localStorage.setItem(`${LEGACY_KEY}.subidos`, localStorage.getItem(LEGACY_KEY));
+    localStorage.removeItem(LEGACY_KEY);
+    notify(`Listo: ${added} videos subidos a tu cuenta.`);
   } catch {
-    const message = 'No se pudo guardar: el almacenamiento del teléfono está lleno.';
-    setStatus(message, true);
-    notify(message, true);
-    return false;
+    notify('No se pudieron subir tus videos. Se volverá a intentar la próxima vez.', true);
   }
 }
 
@@ -374,11 +451,13 @@ function render() {
   ui.empty.textContent = items.length ? 'Ningún video coincide con la búsqueda.' : 'Pulsa «+ Nuevo» para guardar tu primer video.';
 }
 
-function removeItem(id) {
+async function removeItem(id) {
   const item = items.find((entry) => entry.id === id);
   if (!item || !confirm(`¿Borrar "${item.title || item.url}"?`)) return;
+  const { error } = await run(db.from('videos').delete().eq('id', id));
+  if (error) return notify('No se pudo borrar. Revisa tu conexión.', true);
   items = items.filter((entry) => entry.id !== id);
-  persist();
+  writeCache();
   render();
 }
 
@@ -418,11 +497,15 @@ ui.form.addEventListener('submit', async (event) => {
   ui.save.disabled = true;
   setStatus('Guardando…');
   const meta = (await requestPreview()) || { url, title: '', source: hostOf(url), thumbnail: '' };
+  const item = sanitizeItem({ ...meta, url, description: ui.desc.value.trim() });
+  const { data, error } = await run(db.from('videos').insert(toRow(item)).select(COLUMNS).single());
   ui.save.disabled = false;
+  if (error) {
+    return setStatus(error.code === '23505' ? 'Este link ya está guardado.' : 'No se pudo guardar. Revisa tu conexión.', true);
+  }
 
-  items.unshift(sanitizeItem({ ...meta, url, description: ui.desc.value.trim(), createdAt: Date.now() }));
-  if (!persist()) { items.shift(); return; }
-
+  items.unshift(fromRow(data));
+  writeCache();
   resetComposer();
   ui.newDialog.close();
   notify(meta.title ? 'Video guardado.' : 'Guardado sin preview: este sitio no la ofrece.');
@@ -435,15 +518,16 @@ ui.newDialog.addEventListener('close', resetComposer);
 
 ui.search.addEventListener('input', render);
 
-ui.editForm.addEventListener('submit', (event) => {
-  if (event.submitter && event.submitter.value === 'ok') {
-    const item = items.find((entry) => entry.id === editingId);
-    if (item) {
-      item.description = ui.editDesc.value.trim();
-      persist();
-      render();
-    }
-  }
+ui.editForm.addEventListener('submit', async (event) => {
+  if (!event.submitter || event.submitter.value !== 'ok') return;
+  const item = items.find((entry) => entry.id === editingId);
+  if (!item) return;
+  const description = ui.editDesc.value.trim();
+  const { error } = await run(db.from('videos').update({ description }).eq('id', item.id));
+  if (error) return notify('No se pudo guardar el cambio. Revisa tu conexión.', true);
+  item.description = description;
+  writeCache();
+  render();
 });
 
 $('menuBtn').addEventListener('click', () => ui.backupDialog.showModal());
@@ -467,21 +551,136 @@ ui.importFile.addEventListener('change', async () => {
   if (!file) return;
   ui.backupDialog.close();
   try {
-    const incoming = JSON.parse(await file.text());
-    if (!Array.isArray(incoming)) throw new Error('formato');
-    const known = new Set(items.map((item) => videoKey(item.url)));
-    const added = incoming.map(sanitizeItem).filter((item) => {
-      if (!item || known.has(videoKey(item.url))) return false;
-      known.add(videoKey(item.url));
-      return true;
-    });
-    items = [...added, ...items].sort((a, b) => b.createdAt - a.createdAt);
-    persist();
-    render();
-    notify(`Importación lista. Videos añadidos: ${added.length}.`);
+    let incoming;
+    try {
+      incoming = JSON.parse(await file.text());
+      if (!Array.isArray(incoming)) throw new Error('formato');
+    } catch {
+      return notify('Ese archivo no es una copia válida de Videoteca.', true);
+    }
+    const added = await uploadItems(incoming.map(sanitizeItem));
+    notify(`Importación lista. Videos añadidos: ${added}.`);
   } catch {
-    notify('Ese archivo no es una copia válida de Videoteca.', true);
+    notify('No se pudo importar. Revisa tu conexión.', true);
   }
+});
+
+async function logout() {
+  if (!confirm('¿Cerrar sesión en este dispositivo?')) return;
+  if (ui.backupDialog.open) ui.backupDialog.close();
+  try { localStorage.removeItem(cacheKey()); } catch { /* nada que borrar */ }
+  await run(db.auth.signOut({ scope: 'local' }));
+  await applySession(null);
+}
+
+$('logoutBtn').addEventListener('click', logout);
+$('logoutTopBtn').addEventListener('click', logout);
+
+/* ---------- Login ---------- */
+
+function setAuthStatus(message, isError = false) {
+  ui.authStatus.textContent = message;
+  ui.authStatus.classList.toggle('error', isError);
+}
+
+function showView(loggedIn) {
+  ui.authView.hidden = loggedIn;
+  ui.appView.hidden = !loggedIn;
+}
+
+async function applySession(session) {
+  const next = session ? session.user : null;
+  if ((next && next.id) === (user && user.id)) return;
+  user = next;
+  [ui.newDialog, ui.viewer, ui.editDialog, ui.backupDialog].forEach((dialog) => { if (dialog.open) dialog.close(); });
+
+  if (!user) {
+    items = [];
+    render();
+    showView(false);
+    return;
+  }
+
+  ui.accountEmail.textContent = user.email || '';
+  showView(true);
+  await loadItems();
+  await migrateLegacy();
+  if (sharedPending) {
+    openComposer();
+    ui.url.value = normalizeUrl(sharedPending) || sharedPending;
+    sharedPending = '';
+    requestPreview();
+  }
+}
+
+let signingUp = false;
+const authConfirmRow = $('authConfirmRow');
+const authConfirm = $('authConfirm');
+const authSwitch = $('authSwitch');
+const authSwitchText = $('authSwitchText');
+
+function setAuthMode(signup) {
+  signingUp = signup;
+  authConfirmRow.hidden = !signup;
+  authConfirm.required = signup;
+  authConfirm.value = '';
+  ui.authPassword.autocomplete = signup ? 'new-password' : 'current-password';
+  ui.authBtn.textContent = signup ? 'Crear cuenta' : 'Entrar';
+  authSwitchText.textContent = signup ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?';
+  authSwitch.textContent = signup ? 'Entrar' : 'Crear cuenta';
+  setAuthStatus('');
+}
+
+authSwitch.addEventListener('click', () => setAuthMode(!signingUp));
+
+function authErrorMessage(error) {
+  const code = error.code || '';
+  if (code === 'email_not_confirmed') return 'Primero confirma tu correo: abre el enlace que te enviamos.';
+  if (code === 'user_already_exists' || code === 'email_exists') return 'Ese correo ya tiene cuenta. Entra con tu contraseña.';
+  if (code === 'weak_password') return 'La contraseña es muy débil. Usa al menos 6 caracteres.';
+  if (code === 'signup_disabled') return 'El registro de cuentas nuevas está cerrado.';
+  if (code === 'over_email_send_rate_limit' || error.status === 429) return 'Demasiados intentos. Espera un rato y vuelve a probar.';
+  if (code === 'email_address_invalid') return 'Ese correo no es válido.';
+  if (!signingUp && error.status === 400) return 'Correo o contraseña incorrectos.';
+  return signingUp ? 'No se pudo crear la cuenta. Revisa tu conexión.' : 'No se pudo entrar. Revisa tu conexión.';
+}
+
+ui.authForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!db) return;
+  const email = ui.authEmail.value.trim();
+  const password = ui.authPassword.value;
+  if (signingUp && password !== authConfirm.value) {
+    setAuthStatus('Las contraseñas no coinciden.', true);
+    return;
+  }
+
+  ui.authBtn.disabled = true;
+  setAuthStatus(signingUp ? 'Creando cuenta…' : 'Entrando…');
+  const { data, error } = await run(signingUp
+    ? db.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } })
+    : db.auth.signInWithPassword({ email, password }));
+  ui.authBtn.disabled = false;
+  if (error) {
+    setAuthStatus(authErrorMessage(error), true);
+    return;
+  }
+
+  if (signingUp && !data.session) {
+    // Con la confirmación por correo activada, Supabase no da sesión hasta confirmar.
+    // Si el correo ya existía, devuelve un usuario sin identidades.
+    const exists = data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0;
+    setAuthMode(false);
+    ui.authPassword.value = '';
+    setAuthStatus(exists
+      ? 'Ese correo ya tiene cuenta. Entra con tu contraseña.'
+      : 'Te enviamos un correo para confirmar la cuenta. Ábrelo y luego entra aquí.', exists);
+    return;
+  }
+
+  ui.authPassword.value = '';
+  setAuthMode(false);
+  await applySession(data.session);
 });
 
 /* ---------- Inicio ---------- */
@@ -492,13 +691,31 @@ function readSharedLink() {
   const shared = params.get('url') || params.get('text') || params.get('title');
   if (!shared) return;
   history.replaceState(null, '', location.pathname);
-  openComposer();
-  ui.url.value = normalizeUrl(shared) || shared;
-  requestPreview();
+  sharedPending = shared; // se abre en cuanto haya sesión
 }
 
-render();
-readSharedLink();
+async function init() {
+  readSharedLink();
+  render();
+
+  if (!window.supabase || !CONFIG.supabaseUrl || !CONFIG.supabaseKey) {
+    showView(false);
+    ui.authBtn.disabled = true;
+    setAuthStatus(window.supabase
+      ? 'Falta poner los datos de Supabase en config.js.'
+      : 'No se pudo cargar la app. Revisa tu conexión y recarga.', true);
+    return;
+  }
+
+  db = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey);
+  // setTimeout: Supabase recomienda no llamar a la base de datos dentro de este aviso.
+  db.auth.onAuthStateChange((_event, session) => { setTimeout(() => applySession(session), 0); });
+  const { data } = await run(db.auth.getSession());
+  await applySession(data && data.session);
+  if (!user) showView(false);
+}
+
+init();
 
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 if ('serviceWorker' in navigator) {
