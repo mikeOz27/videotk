@@ -2,7 +2,8 @@
 
 const CONFIG = window.VIDEOTECA_CONFIG || {};
 const LEGACY_KEY = 'videoteca.items.v1'; // videos guardados antes de tener cuenta
-const COLUMNS = 'id,url,title,source,thumbnail,description,created_at';
+const COLUMNS = 'id,url,title,source,thumbnail,description,category,created_at';
+const FILTER_KEY = 'videotk.filter';
 const $ = (id) => document.getElementById(id);
 
 const ui = {
@@ -18,6 +19,8 @@ const ui = {
   newDialog: $('newDialog'), notice: $('notice'),
   viewer: $('viewer'), player: $('player'), viewerSource: $('viewerSource'),
   viewerTitle: $('viewerTitle'), viewerDesc: $('viewerDesc'), viewerOpen: $('viewerOpen'),
+  cat: $('catInput'), catChips: $('catChips'), editCat: $('editCat'), editCatChips: $('editCatChips'),
+  filters: $('filters'),
 };
 
 let db = null;           // cliente de Supabase
@@ -28,6 +31,9 @@ let previewToken = 0;    // descarta respuestas de links anteriores
 let previewPending = null;
 let editingId = null;
 let sharedPending = '';  // link compartido desde otra app antes de iniciar sesión
+let activeFilter = null; // null = todas; '' = sin categoría; texto = esa categoría
+try { const saved = localStorage.getItem(FILTER_KEY); if (saved !== null) activeFilter = JSON.parse(saved); } catch { /* sin filtro */ }
+if (activeFilter !== null && typeof activeFilter !== 'string') activeFilter = null;
 
 /* ---------- Base de datos ---------- */
 
@@ -70,6 +76,7 @@ function toRow(item) {
     source: item.source,
     thumbnail: item.thumbnail,
     description: item.description,
+    category: item.category,
   };
 }
 
@@ -142,8 +149,77 @@ function sanitizeItem(raw) {
     source: String(raw.source || hostOf(url)).slice(0, 80),
     thumbnail: safeHttpUrl(raw.thumbnail),
     description: String(raw.description || '').slice(0, 5000),
+    category: cleanCategory(raw.category),
     createdAt: Number(raw.createdAt) || Date.now(),
   };
+}
+
+/* ---------- Categorías ---------- */
+
+function cleanCategory(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+}
+
+// Categorías usadas, de la más usada a la menos: [{ name, count }].
+function categories() {
+  const counts = new Map();
+  for (const item of items) if (item.category) counts.set(item.category, (counts.get(item.category) || 0) + 1);
+  return [...counts].map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'es'));
+}
+
+// "zelda" se guarda como "Zelda" si esa categoría ya existe, para no duplicarlas.
+function matchCategory(value) {
+  const clean = cleanCategory(value);
+  const existing = categories().find(({ name }) => name.toLowerCase() === clean.toLowerCase());
+  return existing ? existing.name : clean;
+}
+
+function chip(label, pressed, onClick) {
+  const button = el('button', 'chip', label);
+  button.type = 'button';
+  button.setAttribute('aria-pressed', String(pressed));
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+// Sugerencias debajo del campo Categoría: tocar una la elige; tocarla otra vez la quita.
+function renderCategoryChips(input, container) {
+  const current = cleanCategory(input.value).toLowerCase();
+  container.replaceChildren(...categories().map(({ name }) => chip(name, name.toLowerCase() === current, () => {
+    input.value = name.toLowerCase() === cleanCategory(input.value).toLowerCase() ? '' : name;
+    renderCategoryChips(input, container);
+  })));
+  container.hidden = !container.children.length;
+}
+
+function setFilter(value) {
+  activeFilter = value;
+  try { localStorage.setItem(FILTER_KEY, JSON.stringify(value)); } catch { /* no es grave */ }
+  render();
+}
+
+// El filtro guardado solo se aplica si esa categoría existe en la lista actual.
+// No se borra si no existe: al abrir la app la lista empieza vacía hasta que carga.
+function currentFilter() {
+  if (activeFilter === null) return null;
+  if (activeFilter === '') return items.some((item) => !item.category) && categories().length ? '' : null;
+  return items.some((item) => item.category === activeFilter) ? activeFilter : null;
+}
+
+function renderFilters() {
+  const cats = categories();
+  const filter = currentFilter();
+  const uncategorized = items.filter((item) => !item.category).length;
+
+  ui.filters.hidden = !cats.length;
+  if (!cats.length) { ui.filters.replaceChildren(); return; }
+  const chips = [chip(`Todas · ${items.length}`, filter === null, () => setFilter(null))];
+  for (const { name, count } of cats) chips.push(chip(`${name} · ${count}`, filter === name, () => setFilter(name)));
+  if (uncategorized) chips.push(chip(`Sin categoría · ${uncategorized}`, filter === '', () => setFilter('')));
+  ui.filters.replaceChildren(...chips);
+  const pressed = ui.filters.querySelector('[aria-pressed="true"]');
+  if (pressed && filter !== null) pressed.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 function newId() {
@@ -310,12 +386,17 @@ function notify(message, isError = false) {
 }
 
 function openComposer() {
-  if (!ui.newDialog.open) ui.newDialog.showModal();
+  if (ui.newDialog.open) return;
+  // Si estás viendo una categoría, el video nuevo va a esa categoría (se puede cambiar).
+  if (!ui.cat.value && currentFilter()) ui.cat.value = currentFilter();
+  renderCategoryChips(ui.cat, ui.catChips);
+  ui.newDialog.showModal();
 }
 
 function resetComposer() {
   clearTimeout(ui.url.debounce);
   ui.form.reset();
+  renderCategoryChips(ui.cat, ui.catChips);
   clearPreview();
   setStatus('');
   ui.save.disabled = false;
@@ -371,7 +452,7 @@ function openViewer(item) {
 
   ui.player.classList.toggle('vertical', embed.vertical);
   ui.player.replaceChildren(frame);
-  ui.viewerSource.textContent = item.source || embed.label;
+  ui.viewerSource.textContent = [item.source || embed.label, item.category].filter(Boolean).join(' · ');
   ui.viewerTitle.textContent = item.title || item.url;
   ui.viewerDesc.textContent = item.description || '';
   ui.viewerOpen.href = item.url;
@@ -398,6 +479,26 @@ function el(tag, className, text) {
   return node;
 }
 
+// Iconos dibujados con SVG (se ven igual en todos los teléfonos y toman el color del botón).
+const ICONS = {
+  edit: ['M12 20h9', 'M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z'],
+  trash: ['M3 6h18', 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2', 'M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6', 'M10 11v6', 'M14 11v6'],
+};
+
+function icon(name) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'icon');
+  svg.setAttribute('aria-hidden', 'true');
+  ICONS[name].forEach((d) => {
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  });
+  return svg;
+}
+
 function renderCard(item) {
   const card = el('li', 'card');
 
@@ -420,20 +521,26 @@ function renderCard(item) {
   setThumb(img, placeholder, item.thumbnail);
 
   const meta = el('div', 'meta');
-  meta.append(el('p', 'source', item.source), el('p', 'title', item.title || item.url));
+  const source = el('p', 'source', item.source);
+  if (item.category) source.append(' · ', el('span', 'cattag', item.category));
+  meta.append(source, el('p', 'title', item.title || item.url));
   link.append(thumb, meta);
   card.append(link);
 
   if (item.description) card.append(el('p', 'desc', item.description));
 
   const actions = el('div', 'cardactions');
-  const edit = el('button', 'ghost', '✎');
+  const edit = el('button', 'ghost');
   edit.type = 'button';
+  edit.append(icon('edit'));
   edit.setAttribute('aria-label', 'Editar');
+  edit.title = 'Editar';
   edit.addEventListener('click', () => openEditor(item.id));
-  const remove = el('button', 'danger', '✕');
+  const remove = el('button', 'danger');
   remove.type = 'button';
-  remove.setAttribute('aria-label', 'Borrar');
+  remove.append(icon('trash'));
+  remove.setAttribute('aria-label', 'Eliminar');
+  remove.title = 'Eliminar';
   remove.addEventListener('click', () => removeItem(item.id));
   actions.append(edit, remove);
   card.append(actions);
@@ -441,14 +548,20 @@ function renderCard(item) {
 }
 
 function render() {
+  renderFilters();
+  const filter = currentFilter();
   const query = ui.search.value.trim().toLowerCase();
   const visible = items.filter((item) =>
-    !query || `${item.title} ${item.description} ${item.source} ${item.url}`.toLowerCase().includes(query));
+    (filter === null || item.category === filter)
+    && (!query || `${item.title} ${item.description} ${item.category} ${item.source} ${item.url}`.toLowerCase().includes(query)));
 
   ui.list.replaceChildren(...visible.map(renderCard));
-  ui.count.textContent = items.length === 1 ? '1 video' : `${items.length} videos`;
+  const total = items.length === 1 ? '1 video' : `${items.length} videos`;
+  ui.count.textContent = visible.length === items.length ? total : `${visible.length} de ${total}`;
   ui.empty.hidden = visible.length > 0;
-  ui.empty.textContent = items.length ? 'Ningún video coincide con la búsqueda.' : 'Pulsa «+ Nuevo» para guardar tu primer video.';
+  ui.empty.textContent = !items.length ? 'Pulsa «+ Nuevo» para guardar tu primer video.'
+    : query ? 'Ningún video coincide con la búsqueda.'
+    : 'No hay videos en esta categoría.';
 }
 
 // Pregunta Sí/No con SweetAlert2; si la librería no cargó, usa la del navegador.
@@ -496,6 +609,8 @@ function openEditor(id) {
   if (!item) return;
   editingId = id;
   ui.editTitle.textContent = item.title || item.url;
+  ui.editCat.value = item.category;
+  renderCategoryChips(ui.editCat, ui.editCatChips);
   ui.editDesc.value = item.description;
   ui.editDialog.showModal();
 }
@@ -527,17 +642,21 @@ ui.form.addEventListener('submit', async (event) => {
   ui.save.disabled = true;
   setStatus('Guardando…');
   const meta = (await requestPreview()) || { url, title: '', source: hostOf(url), thumbnail: '' };
-  const item = sanitizeItem({ ...meta, url, description: ui.desc.value.trim() });
+  const item = sanitizeItem({ ...meta, url, description: ui.desc.value.trim(), category: matchCategory(ui.cat.value) });
   const { data, error } = await run(db.from('videos').insert(toRow(item)).select(COLUMNS).single());
   ui.save.disabled = false;
   if (error) {
     return setStatus(error.code === '23505' ? 'Este link ya está guardado.' : 'No se pudo guardar. Revisa tu conexión.', true);
   }
 
-  items.unshift(fromRow(data));
+  const saved = fromRow(data);
+  const filter = currentFilter();
+  items.unshift(saved);
   writeCache();
   resetComposer();
   ui.newDialog.close();
+  // Que el video recién guardado se vea aunque hubiera otro filtro puesto.
+  if (filter !== null && filter !== saved.category) setFilter(saved.category || null);
   notify(meta.title ? 'Video guardado.' : 'Guardado sin preview: este sitio no la ofrece.');
   render();
 });
@@ -547,15 +666,22 @@ $('cancelNew').addEventListener('click', () => { resetComposer(); ui.newDialog.c
 ui.newDialog.addEventListener('close', resetComposer);
 
 ui.search.addEventListener('input', render);
+ui.cat.addEventListener('input', () => renderCategoryChips(ui.cat, ui.catChips));
+ui.editCat.addEventListener('input', () => renderCategoryChips(ui.editCat, ui.editCatChips));
 
 ui.editForm.addEventListener('submit', async (event) => {
   if (!event.submitter || event.submitter.value !== 'ok') return;
   const item = items.find((entry) => entry.id === editingId);
   if (!item) return;
   const description = ui.editDesc.value.trim();
-  const { error } = await run(db.from('videos').update({ description }).eq('id', item.id));
+  const category = matchCategory(ui.editCat.value);
+  const { error } = await run(db.from('videos').update({ description, category }).eq('id', item.id));
   if (error) return notify('No se pudo guardar el cambio. Revisa tu conexión.', true);
   item.description = description;
+  const filter = currentFilter();
+  const moved = filter !== null && filter !== category;
+  item.category = category;
+  if (moved) notify(category ? `Movido a «${category}».` : 'Movido a «Sin categoría».');
   writeCache();
   render();
 });

@@ -206,6 +206,35 @@ a.button {
 .listhead input { flex: 1; min-width: 0; }
 .count { font-size: 13px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
+/* Categorías */
+.chips { display: flex; gap: 6px; }
+.chips[hidden] { display: none; }
+.chips.wrap { flex-wrap: wrap; margin-top: 8px; }
+.chips.filters {
+  margin: 0 -16px 12px;
+  padding: 2px 16px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.chips.filters::-webkit-scrollbar { display: none; }
+.chip {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.cattag { color: var(--accent); font-weight: 600; }
+
 .list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
 .card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .card > a { display: block; color: inherit; text-decoration: none; }
@@ -217,7 +246,16 @@ a.button {
 .card .title { font-size: 12px; line-height: 1.25; -webkit-line-clamp: 3; }
 .desc { margin: 0; padding: 3px 6px 0; font-size: 11px; line-height: 1.25; color: var(--muted); -webkit-line-clamp: 3; }
 .cardactions { display: flex; margin-top: auto; }
-.cardactions button { flex: 1; min-width: 0; min-height: 38px; padding: 0; font-size: 15px; }
+.cardactions button { display: grid; place-items: center; flex: 1; min-width: 0; min-height: 38px; padding: 0; font-size: 15px; }
+.icon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 
 /* Móvil: una tarjeta por fila, a todo el ancho; miniatura a la izquierda. */
 @media (max-width: 699px) {
@@ -240,8 +278,9 @@ a.button {
   .card .source { font-size: 12px; }
   .card .title { font-size: 15px; line-height: 1.3; -webkit-line-clamp: 2; }
   .card .desc { grid-column: 2; grid-row: 2; padding: 4px 12px 0; font-size: 13px; line-height: 1.35; -webkit-line-clamp: 2; }
-  .card .cardactions { grid-column: 2; grid-row: 4; justify-content: flex-end; gap: 4px; padding: 4px 6px 6px; }
-  .card .cardactions button { flex: 0 0 44px; min-height: 40px; font-size: 16px; }
+  .card .cardactions { grid-column: 2; grid-row: 4; justify-content: flex-end; gap: 6px; padding: 4px 8px 8px; }
+  .card .cardactions button { flex: 0 0 48px; min-height: 48px; border-radius: 12px; }
+  .card .cardactions .icon { width: 24px; height: 24px; }
 }
 
 @media (min-width: 700px) {

@@ -9,9 +9,15 @@ create table if not exists public.videos (
   source      text not null default '',
   thumbnail   text not null default '',
   description text not null default '',
+  category    text not null default '' check (char_length(category) <= 40),
   created_at  timestamptz not null default now(),
   unique (user_id, url)
 );
+
+-- Para proyectos creados antes de que existieran las categorías.
+alter table public.videos
+  add column if not exists category text not null default ''
+  check (char_length(category) <= 40);
 
 create index if not exists videos_user_created_idx on public.videos (user_id, created_at desc);
 

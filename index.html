@@ -53,6 +53,7 @@
         <input id="search" type="search" placeholder="Buscar en tus videos" aria-label="Buscar en tus videos">
         <span id="count" class="count"></span>
       </div>
+      <div id="filters" class="chips filters" role="group" aria-label="Filtrar por categoría" hidden></div>
       <ul id="list" class="list"></ul>
       <p id="empty" class="empty" hidden></p>
     </section>
@@ -74,6 +75,10 @@
           <p id="previewTitle" class="title"></p>
         </div>
       </article>
+
+      <label for="catInput">Categoría</label>
+      <input id="catInput" type="text" maxlength="40" autocomplete="off" placeholder="Ej.: Zelda, Recetas, Música…">
+      <div id="catChips" class="chips wrap"></div>
 
       <label for="descInput">Descripción</label>
       <textarea id="descInput" rows="2" placeholder="¿Por qué guardas este video?"></textarea>
@@ -101,9 +106,13 @@
 
   <dialog id="editDialog">
     <form id="editForm" method="dialog">
-      <h2>Editar descripción</h2>
+      <h2>Editar video</h2>
       <p id="editTitle" class="source"></p>
-      <textarea id="editDesc" rows="4" aria-label="Descripción"></textarea>
+      <label for="editCat">Categoría</label>
+      <input id="editCat" type="text" maxlength="40" autocomplete="off" placeholder="Sin categoría">
+      <div id="editCatChips" class="chips wrap"></div>
+      <label for="editDesc">Descripción</label>
+      <textarea id="editDesc" rows="4"></textarea>
       <div class="actions">
         <button class="ghost" value="cancel" type="submit">Cancelar</button>
         <button class="primary" value="ok" type="submit">Guardar</button>
