@@ -17,23 +17,55 @@
 </head>
 <body>
   <section id="authView" class="auth" hidden>
-    <h1>VideoTk</h1>
-    <form id="authForm" class="authcard">
-      <label for="authEmail">Correo</label>
-      <input id="authEmail" type="email" autocomplete="username" inputmode="email" required>
-      <label for="authPassword">Contraseña</label>
-      <input id="authPassword" type="password" autocomplete="current-password" minlength="6" required>
-      <div id="authConfirmRow" hidden>
-        <label for="authConfirm">Repite la contraseña</label>
-        <input id="authConfirm" type="password" autocomplete="new-password" minlength="6">
+    <div class="authbg" aria-hidden="true">
+      <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+    </div>
+
+    <div class="authwrap">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 48 48"><path d="M19 15.5v17a1.5 1.5 0 0 0 2.3 1.27l13.4-8.5a1.5 1.5 0 0 0 0-2.54l-13.4-8.5A1.5 1.5 0 0 0 19 15.5Z"/></svg>
+        </div>
+        <h1>VideoTk</h1>
+        <p class="tagline">Tus videos favoritos, siempre a mano.</p>
       </div>
-      <p id="authStatus" class="status" role="status"></p>
-      <button id="authBtn" class="primary" type="submit">Entrar</button>
-      <p class="authswitch">
-        <span id="authSwitchText">¿No tienes cuenta?</span>
-        <button id="authSwitch" class="linkbtn" type="button">Crear cuenta</button>
-      </p>
-    </form>
+
+      <form id="authForm" class="authcard" novalidate>
+        <h2 id="authTitle" class="authtitle">Bienvenido de nuevo</h2>
+
+        <div class="field">
+          <svg class="fieldicon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></svg>
+          <input id="authEmail" type="email" autocomplete="username" inputmode="email" placeholder=" " required>
+          <label for="authEmail">Correo</label>
+        </div>
+
+        <div class="field">
+          <svg class="fieldicon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          <input id="authPassword" type="password" autocomplete="current-password" minlength="6" placeholder=" " required>
+          <label for="authPassword">Contraseña</label>
+          <button id="authEye" class="eye" type="button" aria-label="Mostrar contraseña" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+
+        <div id="authConfirmRow" class="reveal" inert>
+          <div class="revealinner">
+            <div class="field">
+              <svg class="fieldicon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+              <input id="authConfirm" type="password" autocomplete="new-password" minlength="6" placeholder=" ">
+              <label for="authConfirm">Repite la contraseña</label>
+            </div>
+          </div>
+        </div>
+
+        <p id="authStatus" class="status authstatus" role="status"></p>
+        <button id="authBtn" class="authbtn" type="submit"><span class="label">Entrar</span><span class="spinner" aria-hidden="true"></span></button>
+        <p class="authswitch">
+          <span id="authSwitchText">¿No tienes cuenta?</span>
+          <button id="authSwitch" class="linkbtn" type="button">Crear cuenta</button>
+        </p>
+      </form>
+    </div>
   </section>
 
   <main id="appView" class="app" hidden>
@@ -76,9 +108,8 @@
         </div>
       </article>
 
-      <label for="catInput">Categoría</label>
-      <input id="catInput" type="text" maxlength="40" autocomplete="off" placeholder="Ej.: Zelda, Recetas, Música…">
-      <div id="catChips" class="chips wrap"></div>
+      <p class="fieldlabel" id="catLabel">Categoría</p>
+      <div id="catPicker" class="picker" role="group" aria-labelledby="catLabel"></div>
 
       <label for="descInput">Descripción</label>
       <textarea id="descInput" rows="2" placeholder="¿Por qué guardas este video?"></textarea>
@@ -108,9 +139,8 @@
     <form id="editForm" method="dialog">
       <h2>Editar video</h2>
       <p id="editTitle" class="source"></p>
-      <label for="editCat">Categoría</label>
-      <input id="editCat" type="text" maxlength="40" autocomplete="off" placeholder="Sin categoría">
-      <div id="editCatChips" class="chips wrap"></div>
+      <p class="fieldlabel" id="editCatLabel">Categoría</p>
+      <div id="editCatPicker" class="picker" role="group" aria-labelledby="editCatLabel"></div>
       <label for="editDesc">Descripción</label>
       <textarea id="editDesc" rows="4"></textarea>
       <div class="actions">
@@ -118,6 +148,21 @@
         <button class="primary" value="ok" type="submit">Guardar</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="catsDialog" aria-labelledby="catsTitle">
+    <h2 id="catsTitle">Tus categorías</h2>
+    <p class="hint">Créalas aquí y luego elígelas al guardar o editar un video. Toca un nombre para cambiarlo.</p>
+    <form id="catAddForm" class="row">
+      <input id="catNewName" type="text" maxlength="40" autocomplete="off" placeholder="Nueva categoría" aria-label="Nombre de la nueva categoría" required>
+      <button class="primary" type="submit">Añadir</button>
+    </form>
+    <p id="catsStatus" class="status" role="status"></p>
+    <ul id="catsList" class="catslist"></ul>
+    <p id="catsEmpty" class="empty" hidden>Todavía no tienes categorías.</p>
+    <div class="actions">
+      <button id="closeCats" class="ghost" type="button">Cerrar</button>
+    </div>
   </dialog>
 
   <dialog id="backupDialog">

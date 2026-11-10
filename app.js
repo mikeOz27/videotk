@@ -2,8 +2,9 @@
 
 const CONFIG = window.VIDEOTECA_CONFIG || {};
 const LEGACY_KEY = 'videoteca.items.v1'; // videos guardados antes de tener cuenta
-const COLUMNS = 'id,url,title,source,thumbnail,description,category,created_at';
+const COLUMNS = 'id,url,title,source,thumbnail,description,category_id,created_at';
 const FILTER_KEY = 'videotk.filter';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const $ = (id) => document.getElementById(id);
 
 const ui = {
@@ -19,19 +20,21 @@ const ui = {
   newDialog: $('newDialog'), notice: $('notice'),
   viewer: $('viewer'), player: $('player'), viewerSource: $('viewerSource'),
   viewerTitle: $('viewerTitle'), viewerDesc: $('viewerDesc'), viewerOpen: $('viewerOpen'),
-  cat: $('catInput'), catChips: $('catChips'), editCat: $('editCat'), editCatChips: $('editCatChips'),
-  filters: $('filters'),
+  catPicker: $('catPicker'), editCatPicker: $('editCatPicker'), filters: $('filters'),
+  catsDialog: $('catsDialog'), catAddForm: $('catAddForm'), catNewName: $('catNewName'),
+  catsStatus: $('catsStatus'), catsList: $('catsList'), catsEmpty: $('catsEmpty'),
 };
 
 let db = null;           // cliente de Supabase
 let user = null;         // usuario con sesión iniciada
 let items = [];
-let draft = null;        // preview del link que se está escribiendo
+let cats = [];           // categorías del usuario: [{ id, name }]
+let draft = null;       // preview del link que se está escribiendo
 let previewToken = 0;    // descarta respuestas de links anteriores
 let previewPending = null;
 let editingId = null;
 let sharedPending = '';  // link compartido desde otra app antes de iniciar sesión
-let activeFilter = null; // null = todas; '' = sin categoría; texto = esa categoría
+let activeFilter = null; // null = todas; '' = sin categoría; id = esa categoría
 try { const saved = localStorage.getItem(FILTER_KEY); if (saved !== null) activeFilter = JSON.parse(saved); } catch { /* sin filtro */ }
 if (activeFilter !== null && typeof activeFilter !== 'string') activeFilter = null;
 
@@ -51,8 +54,14 @@ function cacheKey() {
   return `videoteca.cache.${user.id}`;
 }
 
+function catsCacheKey() {
+  return `videoteca.cats.${user.id}`;
+}
+
 function readCache() {
   try {
+    const parsedCats = JSON.parse(localStorage.getItem(catsCacheKey()) || '[]');
+    cats = Array.isArray(parsedCats) ? parsedCats.map(sanitizeCat).filter(Boolean) : [];
     const parsed = JSON.parse(localStorage.getItem(cacheKey()) || '[]');
     return Array.isArray(parsed) ? parsed.map(sanitizeItem).filter(Boolean) : [];
   } catch {
@@ -61,11 +70,14 @@ function readCache() {
 }
 
 function writeCache() {
-  try { localStorage.setItem(cacheKey(), JSON.stringify(items)); } catch { /* sin espacio: no es grave */ }
+  try {
+    localStorage.setItem(cacheKey(), JSON.stringify(items));
+    localStorage.setItem(catsCacheKey(), JSON.stringify(cats));
+  } catch { /* sin espacio: no es grave */ }
 }
 
 function fromRow(row) {
-  return sanitizeItem({ ...row, createdAt: Date.parse(row.created_at) });
+  return sanitizeItem({ ...row, categoryId: row.category_id, createdAt: Date.parse(row.created_at) });
 }
 
 function toRow(item) {
@@ -76,31 +88,42 @@ function toRow(item) {
     source: item.source,
     thumbnail: item.thumbnail,
     description: item.description,
-    category: item.category,
+    category_id: item.categoryId || null,
   };
 }
 
 async function loadItems() {
   items = readCache();
   render();
-  const { data, error } = await run(db.from('videos').select(COLUMNS).order('created_at', { ascending: false }));
-  if (error) {
+  const [videos, categoryRows] = await Promise.all([
+    run(db.from('videos').select(COLUMNS).order('created_at', { ascending: false })),
+    run(db.from('categories').select('id,name').order('name')),
+  ]);
+  if (videos.error || categoryRows.error) {
     notify('Sin conexión con tu cuenta: se muestra la última copia de este teléfono.', true);
     return;
   }
-  items = data.map(fromRow).filter(Boolean);
+  cats = categoryRows.data.map(sanitizeCat).filter(Boolean);
+  sortCats();
+  items = videos.data.map(fromRow).filter(Boolean);
   writeCache();
   render();
 }
 
 // Sube los videos que no estén ya en la cuenta. Devuelve cuántos subió.
+// Las copias exportadas guardan el nombre de la categoría: se busca o se crea.
 async function uploadItems(list) {
   const known = new Set(items.map((item) => videoKey(item.url)));
   const rows = [];
   for (const item of list) {
     if (!item || known.has(videoKey(item.url))) continue;
     known.add(videoKey(item.url));
-    rows.push({ ...toRow(item), created_at: new Date(item.createdAt).toISOString() });
+    let categoryId = catById(item.categoryId) ? item.categoryId : '';
+    if (!categoryId && item.categoryName) {
+      const cat = await createCategory(item.categoryName);
+      categoryId = cat ? cat.id : '';
+    }
+    rows.push({ ...toRow({ ...item, categoryId }), created_at: new Date(item.createdAt).toISOString() });
   }
   if (!rows.length) return 0;
   const { error } = await run(db.from('videos').upsert(rows, { onConflict: 'user_id,url', ignoreDuplicates: true }));
@@ -149,9 +172,17 @@ function sanitizeItem(raw) {
     source: String(raw.source || hostOf(url)).slice(0, 80),
     thumbnail: safeHttpUrl(raw.thumbnail),
     description: String(raw.description || '').slice(0, 5000),
-    category: cleanCategory(raw.category),
+    categoryId: typeof raw.categoryId === 'string' && UUID.test(raw.categoryId) ? raw.categoryId : '',
+    // Solo para importar copias: el nombre de la categoría tal como se exportó.
+    categoryName: cleanCategory(raw.categoryName || raw.category),
     createdAt: Number(raw.createdAt) || Date.now(),
   };
+}
+
+function sanitizeCat(raw) {
+  if (!raw || typeof raw.id !== 'string' || !UUID.test(raw.id)) return null;
+  const name = cleanCategory(raw.name);
+  return name ? { id: raw.id, name } : null;
 }
 
 /* ---------- Categorías ---------- */
@@ -160,38 +191,150 @@ function cleanCategory(value) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 40);
 }
 
-// Categorías usadas, de la más usada a la menos: [{ name, count }].
-function categories() {
-  const counts = new Map();
-  for (const item of items) if (item.category) counts.set(item.category, (counts.get(item.category) || 0) + 1);
-  return [...counts].map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'es'));
+function sortCats() {
+  cats.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 }
 
-// "zelda" se guarda como "Zelda" si esa categoría ya existe, para no duplicarlas.
-function matchCategory(value) {
-  const clean = cleanCategory(value);
-  const existing = categories().find(({ name }) => name.toLowerCase() === clean.toLowerCase());
-  return existing ? existing.name : clean;
+function catById(id) {
+  return id ? cats.find((cat) => cat.id === id) : undefined;
 }
 
-function chip(label, pressed, onClick) {
-  const button = el('button', 'chip', label);
+function catName(id) {
+  const cat = catById(id);
+  return cat ? cat.name : '';
+}
+
+function catByName(name) {
+  const key = cleanCategory(name).toLocaleLowerCase('es');
+  return cats.find((cat) => cat.name.toLocaleLowerCase('es') === key);
+}
+
+function countIn(id) {
+  return items.filter((item) => item.categoryId === id).length;
+}
+
+// Crea una categoría (o devuelve la que ya tenga ese nombre). null si falla.
+async function createCategory(rawName) {
+  const name = cleanCategory(rawName);
+  if (!name) return null;
+  const existing = catByName(name);
+  if (existing) return existing;
+  const { data, error } = await run(db.from('categories').insert({ user_id: user.id, name }).select('id,name').single());
+  if (error) {
+    if (error.code === '23505') { // creada desde otro teléfono: se recarga la lista
+      const { data: rows } = await run(db.from('categories').select('id,name').order('name'));
+      if (rows) { cats = rows.map(sanitizeCat).filter(Boolean); sortCats(); writeCache(); }
+      return catByName(name) || null;
+    }
+    return null;
+  }
+  const cat = sanitizeCat(data);
+  if (!cat) return null;
+  cats.push(cat);
+  sortCats();
+  writeCache();
+  return cat;
+}
+
+async function renameCategory(id, rawName) {
+  const cat = catById(id);
+  const name = cleanCategory(rawName);
+  if (!cat || !name || name === cat.name) return { ok: true };
+  const other = catByName(name);
+  if (other && other.id !== id) return { ok: false, message: `Ya tienes una categoría «${other.name}».` };
+  const { error } = await run(db.from('categories').update({ name }).eq('id', id));
+  if (error) return { ok: false, message: error.code === '23505' ? 'Ya tienes una categoría con ese nombre.' : 'No se pudo cambiar el nombre. Revisa tu conexión.' };
+  cat.name = name;
+  sortCats();
+  writeCache();
+  return { ok: true };
+}
+
+// Al borrar una categoría, la base deja sus videos sin categoría (no borra los videos).
+async function deleteCategory(id) {
+  const cat = catById(id);
+  if (!cat) return;
+  const count = countIn(id);
+  const ok = await askConfirm({
+    title: `¿Borrar «${cat.name}»?`,
+    text: !count ? 'No tiene videos.'
+      : `${count === 1 ? 'Su video queda' : `Sus ${count} videos quedan`} sin categoría. No se borra ningún video.`,
+    confirmText: 'Sí, borrar',
+    danger: true,
+  });
+  if (!ok) return;
+  const { error } = await run(db.from('categories').delete().eq('id', id));
+  if (error) return setCatsStatus('No se pudo borrar. Revisa tu conexión.', true);
+  cats = cats.filter((entry) => entry.id !== id);
+  items.forEach((item) => { if (item.categoryId === id) item.categoryId = ''; });
+  writeCache();
+  setCatsStatus(`Se borró «${cat.name}».`);
+  refreshCategoryUi();
+}
+
+function chip(label, pressed, onClick, className = 'chip') {
+  const button = el('button', className, label);
   button.type = 'button';
-  button.setAttribute('aria-pressed', String(pressed));
+  if (pressed !== null) button.setAttribute('aria-pressed', String(pressed));
   button.addEventListener('click', onClick);
   return button;
 }
 
-// Sugerencias debajo del campo Categoría: tocar una la elige; tocarla otra vez la quita.
-function renderCategoryChips(input, container) {
-  const current = cleanCategory(input.value).toLowerCase();
-  container.replaceChildren(...categories().map(({ name }) => chip(name, name.toLowerCase() === current, () => {
-    input.value = name.toLowerCase() === cleanCategory(input.value).toLowerCase() ? '' : name;
-    renderCategoryChips(input, container);
-  })));
-  container.hidden = !container.children.length;
+/* Selector de categoría (al guardar y al editar): una sola o ninguna. */
+
+function pickerValue(container) {
+  const id = container.dataset.value || '';
+  return catById(id) ? id : '';
 }
+
+function setPicker(container, id) {
+  container.dataset.value = id || '';
+  container.dataset.adding = '';
+  renderPicker(container);
+}
+
+function renderPicker(container) {
+  const selected = pickerValue(container);
+  const nodes = [chip('Sin categoría', selected === '', () => setPicker(container, ''), 'chip soft')];
+  for (const cat of cats) nodes.push(chip(cat.name, selected === cat.id, () => setPicker(container, cat.id)));
+
+  if (container.dataset.adding === '1') {
+    const row = el('div', 'newcat');
+    const input = el('input');
+    input.type = 'text';
+    input.maxLength = 40;
+    input.placeholder = 'Nombre de la categoría';
+    input.setAttribute('aria-label', 'Nombre de la nueva categoría');
+    const add = el('button', 'primary', 'Crear');
+    add.type = 'button';
+    const cancel = el('button', 'ghost', 'Cancelar');
+    cancel.type = 'button';
+    const create = async () => {
+      if (!cleanCategory(input.value)) return input.focus();
+      add.disabled = true;
+      const cat = await createCategory(input.value);
+      add.disabled = false;
+      if (!cat) { input.classList.add('invalid'); input.title = 'No se pudo crear. Revisa tu conexión.'; return; }
+      setPicker(container, cat.id);
+      refreshCategoryUi();
+    };
+    // Enter crea la categoría (y no envía el formulario del video).
+    input.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); create(); } });
+    input.addEventListener('input', () => { input.classList.remove('invalid'); input.title = ''; });
+    add.addEventListener('click', create);
+    cancel.addEventListener('click', () => { container.dataset.adding = ''; renderPicker(container); });
+    row.append(input, add, cancel);
+    nodes.push(row);
+    container.replaceChildren(...nodes);
+    input.focus();
+    return;
+  }
+
+  nodes.push(chip('+ Nueva', null, () => { container.dataset.adding = '1'; renderPicker(container); }, 'chip add'));
+  container.replaceChildren(...nodes);
+}
+
+/* Filtros de la lista */
 
 function setFilter(value) {
   activeFilter = value;
@@ -199,27 +342,78 @@ function setFilter(value) {
   render();
 }
 
-// El filtro guardado solo se aplica si esa categoría existe en la lista actual.
-// No se borra si no existe: al abrir la app la lista empieza vacía hasta que carga.
+// El filtro guardado solo se aplica si la categoría existe.
 function currentFilter() {
   if (activeFilter === null) return null;
-  if (activeFilter === '') return items.some((item) => !item.category) && categories().length ? '' : null;
-  return items.some((item) => item.category === activeFilter) ? activeFilter : null;
+  if (activeFilter === '') return cats.length ? '' : null;
+  return catById(activeFilter) ? activeFilter : null;
 }
 
 function renderFilters() {
-  const cats = categories();
   const filter = currentFilter();
-  const uncategorized = items.filter((item) => !item.category).length;
-
-  ui.filters.hidden = !cats.length;
-  if (!cats.length) { ui.filters.replaceChildren(); return; }
-  const chips = [chip(`Todas · ${items.length}`, filter === null, () => setFilter(null))];
-  for (const { name, count } of cats) chips.push(chip(`${name} · ${count}`, filter === name, () => setFilter(name)));
-  if (uncategorized) chips.push(chip(`Sin categoría · ${uncategorized}`, filter === '', () => setFilter('')));
-  ui.filters.replaceChildren(...chips);
+  const uncategorized = items.filter((item) => !catById(item.categoryId)).length;
+  const nodes = [chip(`Todas · ${items.length}`, filter === null, () => setFilter(null))];
+  for (const cat of cats) nodes.push(chip(`${cat.name} · ${countIn(cat.id)}`, filter === cat.id, () => setFilter(cat.id)));
+  if (cats.length && uncategorized) nodes.push(chip(`Sin categoría · ${uncategorized}`, filter === '', () => setFilter('')));
+  const manage = chip('', null, openCategories, 'chip add');
+  manage.append(icon('tag'), cats.length ? ' Categorías' : ' Crear categorías');
+  nodes.push(manage);
+  ui.filters.replaceChildren(...nodes);
+  ui.filters.hidden = false;
   const pressed = ui.filters.querySelector('[aria-pressed="true"]');
   if (pressed && filter !== null) pressed.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+/* Ventana "Tus categorías" */
+
+function setCatsStatus(message, isError = false) {
+  ui.catsStatus.textContent = message;
+  ui.catsStatus.classList.toggle('error', isError);
+}
+
+function renderCatsList() {
+  ui.catsEmpty.hidden = cats.length > 0;
+  ui.catsList.replaceChildren(...cats.map((cat) => {
+    const row = el('li', 'catrow');
+    const input = el('input');
+    input.type = 'text';
+    input.maxLength = 40;
+    input.value = cat.name;
+    input.setAttribute('aria-label', `Nombre de la categoría ${cat.name}`);
+    input.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); input.blur(); } });
+    input.addEventListener('change', async () => {
+      const result = await renameCategory(cat.id, input.value);
+      if (!result.ok) { input.value = cat.name; return setCatsStatus(result.message, true); }
+      input.value = cat.name;
+      setCatsStatus('Nombre guardado.');
+      refreshCategoryUi();
+    });
+    const count = countIn(cat.id);
+    const meta = el('span', 'catcount', count === 1 ? '1 video' : `${count} videos`);
+    const remove = el('button', 'danger');
+    remove.type = 'button';
+    remove.append(icon('trash'));
+    remove.setAttribute('aria-label', `Borrar la categoría ${cat.name}`);
+    remove.title = 'Borrar';
+    remove.addEventListener('click', () => deleteCategory(cat.id));
+    row.append(input, meta, remove);
+    return row;
+  }));
+}
+
+function openCategories() {
+  setCatsStatus('');
+  ui.catAddForm.reset();
+  renderCatsList();
+  ui.catsDialog.showModal();
+}
+
+// Vuelve a dibujar todo lo que muestra categorías después de un cambio.
+function refreshCategoryUi() {
+  if (ui.catsDialog.open) renderCatsList();
+  if (ui.newDialog.open) renderPicker(ui.catPicker);
+  if (ui.editDialog.open) renderPicker(ui.editCatPicker);
+  render();
 }
 
 function newId() {
@@ -388,15 +582,14 @@ function notify(message, isError = false) {
 function openComposer() {
   if (ui.newDialog.open) return;
   // Si estás viendo una categoría, el video nuevo va a esa categoría (se puede cambiar).
-  if (!ui.cat.value && currentFilter()) ui.cat.value = currentFilter();
-  renderCategoryChips(ui.cat, ui.catChips);
+  setPicker(ui.catPicker, currentFilter() || '');
   ui.newDialog.showModal();
 }
 
 function resetComposer() {
   clearTimeout(ui.url.debounce);
   ui.form.reset();
-  renderCategoryChips(ui.cat, ui.catChips);
+  setPicker(ui.catPicker, '');
   clearPreview();
   setStatus('');
   ui.save.disabled = false;
@@ -452,7 +645,7 @@ function openViewer(item) {
 
   ui.player.classList.toggle('vertical', embed.vertical);
   ui.player.replaceChildren(frame);
-  ui.viewerSource.textContent = [item.source || embed.label, item.category].filter(Boolean).join(' · ');
+  ui.viewerSource.textContent = [item.source || embed.label, catName(item.categoryId)].filter(Boolean).join(' · ');
   ui.viewerTitle.textContent = item.title || item.url;
   ui.viewerDesc.textContent = item.description || '';
   ui.viewerOpen.href = item.url;
@@ -483,6 +676,7 @@ function el(tag, className, text) {
 const ICONS = {
   edit: ['M12 20h9', 'M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z'],
   trash: ['M3 6h18', 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2', 'M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6', 'M10 11v6', 'M14 11v6'],
+  tag: ['M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z', 'M7.5 7.5h.01'],
 };
 
 function icon(name) {
@@ -522,7 +716,8 @@ function renderCard(item) {
 
   const meta = el('div', 'meta');
   const source = el('p', 'source', item.source);
-  if (item.category) source.append(' · ', el('span', 'cattag', item.category));
+  const category = catName(item.categoryId);
+  if (category) source.append(' · ', el('span', 'cattag', category));
   meta.append(source, el('p', 'title', item.title || item.url));
   link.append(thumb, meta);
   card.append(link);
@@ -552,8 +747,8 @@ function render() {
   const filter = currentFilter();
   const query = ui.search.value.trim().toLowerCase();
   const visible = items.filter((item) =>
-    (filter === null || item.category === filter)
-    && (!query || `${item.title} ${item.description} ${item.category} ${item.source} ${item.url}`.toLowerCase().includes(query)));
+    (filter === null || (filter === '' ? !catById(item.categoryId) : item.categoryId === filter))
+    && (!query || `${item.title} ${item.description} ${catName(item.categoryId)} ${item.source} ${item.url}`.toLowerCase().includes(query)));
 
   ui.list.replaceChildren(...visible.map(renderCard));
   const total = items.length === 1 ? '1 video' : `${items.length} videos`;
@@ -577,6 +772,8 @@ async function askConfirm({ title, text, confirmText, danger = false }) {
     cancelButtonText: 'Cancelar',
     reverseButtons: true,
     focusCancel: danger,
+    // Dentro de una ventana abierta, la alerta tiene que ir en ella para verse encima.
+    target: document.querySelector('dialog[open]') || 'body',
     buttonsStyling: false,
     customClass: {
       popup: 'swal-vt',
@@ -609,8 +806,7 @@ function openEditor(id) {
   if (!item) return;
   editingId = id;
   ui.editTitle.textContent = item.title || item.url;
-  ui.editCat.value = item.category;
-  renderCategoryChips(ui.editCat, ui.editCatChips);
+  setPicker(ui.editCatPicker, item.categoryId);
   ui.editDesc.value = item.description;
   ui.editDialog.showModal();
 }
@@ -642,7 +838,7 @@ ui.form.addEventListener('submit', async (event) => {
   ui.save.disabled = true;
   setStatus('Guardando…');
   const meta = (await requestPreview()) || { url, title: '', source: hostOf(url), thumbnail: '' };
-  const item = sanitizeItem({ ...meta, url, description: ui.desc.value.trim(), category: matchCategory(ui.cat.value) });
+  const item = sanitizeItem({ ...meta, url, description: ui.desc.value.trim(), categoryId: pickerValue(ui.catPicker) });
   const { data, error } = await run(db.from('videos').insert(toRow(item)).select(COLUMNS).single());
   ui.save.disabled = false;
   if (error) {
@@ -656,7 +852,7 @@ ui.form.addEventListener('submit', async (event) => {
   resetComposer();
   ui.newDialog.close();
   // Que el video recién guardado se vea aunque hubiera otro filtro puesto.
-  if (filter !== null && filter !== saved.category) setFilter(saved.category || null);
+  if (filter !== null && filter !== saved.categoryId) setFilter(saved.categoryId || null);
   notify(meta.title ? 'Video guardado.' : 'Guardado sin preview: este sitio no la ofrece.');
   render();
 });
@@ -666,22 +862,34 @@ $('cancelNew').addEventListener('click', () => { resetComposer(); ui.newDialog.c
 ui.newDialog.addEventListener('close', resetComposer);
 
 ui.search.addEventListener('input', render);
-ui.cat.addEventListener('input', () => renderCategoryChips(ui.cat, ui.catChips));
-ui.editCat.addEventListener('input', () => renderCategoryChips(ui.editCat, ui.editCatChips));
+
+ui.catAddForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const name = cleanCategory(ui.catNewName.value);
+  if (!name) return;
+  if (catByName(name)) return setCatsStatus(`Ya tienes «${catByName(name).name}».`, true);
+  const cat = await createCategory(name);
+  if (!cat) return setCatsStatus('No se pudo crear. Revisa tu conexión.', true);
+  ui.catAddForm.reset();
+  setCatsStatus(`Creada «${cat.name}».`);
+  refreshCategoryUi();
+  ui.catNewName.focus();
+});
+$('closeCats').addEventListener('click', () => ui.catsDialog.close());
 
 ui.editForm.addEventListener('submit', async (event) => {
   if (!event.submitter || event.submitter.value !== 'ok') return;
   const item = items.find((entry) => entry.id === editingId);
   if (!item) return;
   const description = ui.editDesc.value.trim();
-  const category = matchCategory(ui.editCat.value);
-  const { error } = await run(db.from('videos').update({ description, category }).eq('id', item.id));
+  const categoryId = pickerValue(ui.editCatPicker);
+  const { error } = await run(db.from('videos').update({ description, category_id: categoryId || null }).eq('id', item.id));
   if (error) return notify('No se pudo guardar el cambio. Revisa tu conexión.', true);
   item.description = description;
   const filter = currentFilter();
-  const moved = filter !== null && filter !== category;
-  item.category = category;
-  if (moved) notify(category ? `Movido a «${category}».` : 'Movido a «Sin categoría».');
+  const moved = filter !== null && filter !== categoryId;
+  item.categoryId = categoryId;
+  if (moved) notify(categoryId ? `Movido a «${catName(categoryId)}».` : 'Movido a «Sin categoría».');
   writeCache();
   render();
 });
@@ -691,7 +899,8 @@ $('closeBackup').addEventListener('click', () => ui.backupDialog.close());
 $('importBtn').addEventListener('click', () => ui.importFile.click());
 
 $('exportBtn').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+  const copy = items.map(({ categoryName, ...item }) => ({ ...item, categoryName: catName(item.categoryId) }));
+  const blob = new Blob([JSON.stringify(copy, null, 2)], { type: 'application/json' });
   const link = el('a');
   link.href = URL.createObjectURL(blob);
   link.download = `videotk-${new Date().toISOString().slice(0, 10)}.json`;
@@ -729,7 +938,7 @@ async function logout() {
   });
   if (!ok) return;
   if (ui.backupDialog.open) ui.backupDialog.close();
-  try { localStorage.removeItem(cacheKey()); } catch { /* nada que borrar */ }
+  try { localStorage.removeItem(cacheKey()); localStorage.removeItem(catsCacheKey()); } catch { /* nada que borrar */ }
   await run(db.auth.signOut({ scope: 'local' }));
   await applySession(null);
 }
@@ -742,7 +951,27 @@ $('logoutTopBtn').addEventListener('click', logout);
 function setAuthStatus(message, isError = false) {
   ui.authStatus.textContent = message;
   ui.authStatus.classList.toggle('error', isError);
+  if (isError) { // pequeña sacudida de la tarjeta
+    ui.authForm.classList.remove('shake');
+    void ui.authForm.offsetWidth;
+    ui.authForm.classList.add('shake');
+  }
 }
+ui.authForm.addEventListener('animationend', () => ui.authForm.classList.remove('shake'));
+
+function setAuthBusy(busy) {
+  ui.authBtn.disabled = busy;
+  ui.authBtn.classList.toggle('loading', busy);
+}
+
+$('authEye').addEventListener('click', (event) => {
+  const eye = event.currentTarget;
+  const show = eye.getAttribute('aria-pressed') !== 'true';
+  eye.setAttribute('aria-pressed', String(show));
+  eye.setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
+  ui.authPassword.type = show ? 'text' : 'password';
+  $('authConfirm').type = show ? 'text' : 'password';
+});
 
 function showView(loggedIn) {
   ui.authView.hidden = loggedIn;
@@ -753,10 +982,11 @@ async function applySession(session) {
   const next = session ? session.user : null;
   if ((next && next.id) === (user && user.id)) return;
   user = next;
-  [ui.newDialog, ui.viewer, ui.editDialog, ui.backupDialog].forEach((dialog) => { if (dialog.open) dialog.close(); });
+  [ui.newDialog, ui.viewer, ui.editDialog, ui.backupDialog, ui.catsDialog].forEach((dialog) => { if (dialog.open) dialog.close(); });
 
   if (!user) {
     items = [];
+    cats = [];
     render();
     showView(false);
     return;
@@ -782,11 +1012,13 @@ const authSwitchText = $('authSwitchText');
 
 function setAuthMode(signup) {
   signingUp = signup;
-  authConfirmRow.hidden = !signup;
+  authConfirmRow.classList.toggle('open', signup);
+  authConfirmRow.inert = !signup;
   authConfirm.required = signup;
   authConfirm.value = '';
   ui.authPassword.autocomplete = signup ? 'new-password' : 'current-password';
-  ui.authBtn.textContent = signup ? 'Crear cuenta' : 'Entrar';
+  ui.authBtn.querySelector('.label').textContent = signup ? 'Crear cuenta' : 'Entrar';
+  $('authTitle').textContent = signup ? 'Crea tu cuenta' : 'Bienvenido de nuevo';
   authSwitchText.textContent = signup ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?';
   authSwitch.textContent = signup ? 'Entrar' : 'Crear cuenta';
   setAuthStatus('');
@@ -811,17 +1043,20 @@ ui.authForm.addEventListener('submit', async (event) => {
   if (!db) return;
   const email = ui.authEmail.value.trim();
   const password = ui.authPassword.value;
+  // El formulario no usa los globos del navegador (novalidate): los mensajes salen aquí.
+  if (!email || !ui.authEmail.checkValidity()) return setAuthStatus('Escribe un correo válido.', true);
+  if (password.length < 6) return setAuthStatus('La contraseña debe tener al menos 6 caracteres.', true);
   if (signingUp && password !== authConfirm.value) {
     setAuthStatus('Las contraseñas no coinciden.', true);
     return;
   }
 
-  ui.authBtn.disabled = true;
-  setAuthStatus(signingUp ? 'Creando cuenta…' : 'Entrando…');
+  setAuthBusy(true);
+  setAuthStatus('');
   const { data, error } = await run(signingUp
     ? db.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } })
     : db.auth.signInWithPassword({ email, password }));
-  ui.authBtn.disabled = false;
+  setAuthBusy(false);
   if (error) {
     setAuthStatus(authErrorMessage(error), true);
     return;
