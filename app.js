@@ -2,7 +2,7 @@
 
 const CONFIG = window.VIDEOTECA_CONFIG || {};
 const LEGACY_KEY = 'videoteca.items.v1'; // videos guardados antes de tener cuenta
-const COLUMNS = 'id,url,title,source,thumbnail,description,category_id,created_at';
+const COLUMNS = 'id,url,title,source,thumbnail,description,category_id,position,created_at';
 const FILTER_KEY = 'videotk.filter';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const $ = (id) => document.getElementById(id);
@@ -96,7 +96,7 @@ async function loadItems() {
   items = readCache();
   render();
   const [videos, categoryRows] = await Promise.all([
-    run(db.from('videos').select(COLUMNS).order('created_at', { ascending: false })),
+    run(db.from('videos').select(COLUMNS).order('position', { ascending: true }).order('created_at', { ascending: false })),
     run(db.from('categories').select('id,name').order('name')),
   ]);
   if (videos.error || categoryRows.error) {
@@ -176,6 +176,7 @@ function sanitizeItem(raw) {
     // Solo para importar copias: el nombre de la categoría tal como se exportó.
     categoryName: cleanCategory(raw.categoryName || raw.category),
     createdAt: Number(raw.createdAt) || Date.now(),
+    position: raw.position !== null && raw.position !== undefined && Number.isFinite(Number(raw.position)) ? Number(raw.position) : null,
   };
 }
 
@@ -710,19 +711,23 @@ function icon(name) {
 
 function renderCard(item) {
   const card = el('li', 'card');
+  card.dataset.id = item.id;
 
   const link = el('a');
   link.href = item.url;
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
+  link.draggable = false; // el arrastre es el nuestro (mantener presionado), no el del navegador
   // Si el sitio se puede ver dentro de la app, abre el visor; si no, el link normal.
   link.addEventListener('click', (event) => {
+    if (sorter.justDropped()) { event.preventDefault(); return; }
     if (openViewer(item)) event.preventDefault();
   });
 
   const thumb = el('div', 'thumb');
   const img = el('img');
   img.alt = '';
+  img.draggable = false;
   img.loading = 'lazy';
   img.referrerPolicy = 'no-referrer';
   const placeholder = el('span', 'ph', '▶');
@@ -758,6 +763,8 @@ function renderCard(item) {
 }
 
 function render() {
+  // Mientras se arrastra una tarjeta no se redibuja la lista (se hace al soltarla).
+  if (sorter.active()) { sorter.later(render); return; }
   renderFilters();
   const filter = currentFilter();
   const query = ui.search.value.trim().toLowerCase();
@@ -772,6 +779,246 @@ function render() {
   ui.empty.textContent = !items.length ? 'Pulsa «+ Nuevo» para guardar tu primer video.'
     : query ? 'Ningún video coincide con la búsqueda.'
     : 'No hay videos en esta categoría.';
+  let hintSeen = false;
+  try { hintSeen = localStorage.getItem(SORT_HINT_KEY) === 'visto'; } catch { /* se muestra */ }
+  $('sortHint').hidden = hintSeen || visible.length < 2;
+}
+
+/* ---------- Ordenar: mantener presionada una tarjeta y arrastrarla ---------- */
+
+const SORT_HINT_KEY = 'videotk.sortHint';
+
+const sorter = (() => {
+  const HOLD_TOUCH = 400; // ms presionando antes de "levantar" la tarjeta
+  const HOLD_MOUSE = 250;
+  const SLOP = 8;         // px que se puede mover el dedo sin cancelar (más = es un scroll)
+  let pending = null;
+  let drag = null;
+  let droppedAt = 0;
+  let afterDrop = null;
+
+  const justDropped = () => Date.now() - droppedAt < 450;
+  const active = () => Boolean(drag);
+
+  function cancelPending() {
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pending.card.classList.remove('pressing');
+    pending = null;
+  }
+
+  function press(card, x, y, mouse) {
+    cancelPending();
+    pending = { card, x, y, mouse };
+    card.classList.add('pressing');
+    pending.timer = setTimeout(() => {
+      const { card: c, x: px, y: py } = pending;
+      pending = null;
+      begin(c, px, py);
+    }, mouse ? HOLD_MOUSE : HOLD_TOUCH);
+  }
+
+  // Posición de la tarjeta en la lista, sin el desplazamiento del arrastre.
+  function baseRect(card) {
+    const saved = card.style.transform;
+    card.style.transform = 'none';
+    const rect = card.getBoundingClientRect();
+    card.style.transform = saved;
+    return rect;
+  }
+
+  function begin(card, x, y) {
+    card.classList.remove('pressing');
+    const rect = card.getBoundingClientRect();
+    drag = {
+      card, x, y,
+      grabX: x - rect.left,
+      grabY: y - rect.top,
+      lastSwap: 0,
+      prevId: card.previousElementSibling ? card.previousElementSibling.dataset.id : null,
+      nextId: card.nextElementSibling ? card.nextElementSibling.dataset.id : null,
+    };
+    card.classList.add('dragging');
+    document.body.classList.add('sorting');
+    if (navigator.vibrate) navigator.vibrate(12);
+    place();
+    drag.raf = requestAnimationFrame(autoScroll);
+  }
+
+  function place() {
+    const { card, x, y, grabX, grabY } = drag;
+    const base = baseRect(card);
+    card.style.transform = `translate(${x - grabX - base.left}px, ${y - grabY - base.top}px) scale(1.03)`;
+  }
+
+  // Mueve la tarjeta en la lista y anima a las demás hasta su nuevo sitio.
+  function flip(mutate) {
+    const others = [...ui.list.children].filter((c) => c !== drag.card);
+    const before = new Map(others.map((c) => [c, c.getBoundingClientRect()]));
+    mutate();
+    for (const c of others) {
+      c.style.transition = 'none';
+      c.style.transform = '';
+      const a = before.get(c);
+      const b = c.getBoundingClientRect();
+      const dx = a.left - b.left;
+      const dy = a.top - b.top;
+      if (!dx && !dy) { c.style.transition = ''; continue; }
+      c.style.transform = `translate(${dx}px, ${dy}px)`;
+      void c.offsetWidth;
+      c.style.transition = '';
+      c.style.transform = '';
+    }
+  }
+
+  function reorder() {
+    if (Date.now() - drag.lastSwap < 160) return; // espera a que termine la animación anterior
+    const under = document.elementFromPoint(drag.x, drag.y);
+    const target = under && under.closest('.card');
+    if (!target || target === drag.card || target.parentElement !== ui.list) return;
+    const cards = [...ui.list.children];
+    const from = cards.indexOf(drag.card);
+    const to = cards.indexOf(target);
+    flip(() => ui.list.insertBefore(drag.card, from < to ? target.nextSibling : target));
+    drag.lastSwap = Date.now();
+    place();
+  }
+
+  function move(x, y) {
+    drag.x = x;
+    drag.y = y;
+    place();
+    reorder();
+  }
+
+  // Cerca del borde de arriba o de abajo, la pantalla se desliza sola.
+  function autoScroll() {
+    if (!drag) return;
+    const edge = 80;
+    let dy = 0;
+    if (drag.y < edge) dy = -Math.ceil((edge - drag.y) / 5);
+    else if (drag.y > innerHeight - edge) dy = Math.ceil((drag.y - (innerHeight - edge)) / 5);
+    if (dy) { scrollBy(0, dy); place(); reorder(); }
+    drag.raf = requestAnimationFrame(autoScroll);
+  }
+
+  function finish() {
+    const { card, prevId, nextId } = drag;
+    cancelAnimationFrame(drag.raf);
+    drag = null;
+    droppedAt = Date.now();
+    document.body.classList.remove('sorting');
+
+    // La tarjeta vuelve suave a su hueco.
+    const now = card.getBoundingClientRect();
+    card.style.transform = '';
+    const slot = card.getBoundingClientRect();
+    card.style.transform = `translate(${now.left - slot.left}px, ${now.top - slot.top}px)`;
+    void card.offsetWidth;
+    card.classList.remove('dragging');
+    card.style.transform = '';
+
+    const prev = card.previousElementSibling;
+    const next = card.nextElementSibling;
+    const moved = (prev ? prev.dataset.id : null) !== prevId || (next ? next.dataset.id : null) !== nextId;
+    if (moved) saveOrder(card.dataset.id, prev && prev.dataset.id, next && next.dataset.id);
+    if (afterDrop) { const fn = afterDrop; afterDrop = null; fn(); }
+  }
+
+  // Ratón: también empieza a arrastrar si se mueve con el botón apretado.
+  ui.list.addEventListener('pointerdown', (event) => {
+    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+    const card = event.target.closest('.card');
+    if (!card || event.target.closest('button')) return;
+    press(card, event.clientX, event.clientY, true);
+  });
+  window.addEventListener('pointermove', (event) => {
+    if (event.pointerType !== 'mouse') return;
+    if (drag) return move(event.clientX, event.clientY);
+    if (pending && Math.hypot(event.clientX - pending.x, event.clientY - pending.y) > SLOP) {
+      const { card, x, y } = pending;
+      cancelPending();
+      begin(card, x, y);
+      move(event.clientX, event.clientY);
+    }
+  });
+  window.addEventListener('pointerup', (event) => {
+    if (event.pointerType !== 'mouse') return;
+    if (drag) finish(); else cancelPending();
+  });
+
+  // Dedo: hay que mantener presionado; si se mueve antes, es un scroll normal.
+  ui.list.addEventListener('touchstart', (event) => {
+    if (event.touches.length !== 1) { cancelPending(); return; }
+    const card = event.target.closest('.card');
+    if (!card || event.target.closest('button')) return;
+    const t = event.touches[0];
+    press(card, t.clientX, t.clientY, false);
+  }, { passive: true });
+  ui.list.addEventListener('touchmove', (event) => {
+    const t = event.touches[0];
+    if (drag) { event.preventDefault(); move(t.clientX, t.clientY); return; }
+    if (pending && Math.hypot(t.clientX - pending.x, t.clientY - pending.y) > SLOP) cancelPending();
+  }, { passive: false });
+  const touchEnd = (event) => {
+    if (drag) { event.preventDefault(); finish(); } else cancelPending();
+  };
+  ui.list.addEventListener('touchend', touchEnd, { passive: false });
+  ui.list.addEventListener('touchcancel', touchEnd, { passive: false });
+  // Sin el menú de "mantener presionado" del teléfono sobre las tarjetas.
+  ui.list.addEventListener('contextmenu', (event) => { if (event.target.closest('.card')) event.preventDefault(); });
+  window.addEventListener('scroll', () => { if (!drag) cancelPending(); }, { passive: true });
+
+  return { justDropped, active, later: (fn) => { afterDrop = fn; } };
+})();
+
+// Guarda la nueva posición: queda entre sus vecinas, así solo cambia este video.
+async function saveOrder(id, prevId, nextId) {
+  const item = items.find((entry) => entry.id === id);
+  if (!item) return;
+  const prev = prevId ? items.find((entry) => entry.id === prevId) : null;
+  const next = nextId ? items.find((entry) => entry.id === nextId) : null;
+  const relocate = () => {
+    const rest = items.filter((entry) => entry !== item);
+    const index = prev ? rest.indexOf(prev) + 1 : rest.indexOf(next);
+    rest.splice(Math.max(0, index), 0, item);
+    return rest;
+  };
+  const known = (entry) => !entry || Number.isFinite(entry.position);
+
+  try { localStorage.setItem(SORT_HINT_KEY, 'visto'); } catch { /* no es grave */ }
+  $('sortHint').hidden = true;
+
+  let position = null;
+  if (known(prev) && known(next) && Number.isFinite(item.position)) {
+    if (prev && next) position = (prev.position + next.position) / 2;
+    else if (prev) position = prev.position + 1;
+    else if (next) position = next.position - 1;
+    // Sin espacio entre las vecinas (tras muchísimos movimientos): se renumera todo.
+    if (position !== null && ((prev && position <= prev.position) || (next && position >= next.position))) position = null;
+  }
+
+  const before = items.map((entry) => [entry, entry.position]);
+  items = relocate();
+  let updates;
+  if (position !== null) {
+    item.position = position;
+    updates = [[item.id, position]];
+  } else {
+    items.forEach((entry, index) => { entry.position = (index + 1) * 1024; });
+    updates = items.map((entry) => [entry.id, entry.position]);
+  }
+  writeCache();
+
+  const results = await Promise.all(updates.map(([videoId, pos]) =>
+    run(db.from('videos').update({ position: pos }).eq('id', videoId))));
+  if (results.some((result) => result.error)) {
+    before.forEach(([entry, pos]) => { entry.position = pos; });
+    items.sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity) || b.createdAt - a.createdAt);
+    writeCache();
+    render();
+    notify('No se pudo guardar el nuevo orden. Revisa tu conexión.', true);
+  }
 }
 
 // Las ventanas abiertas con showModal() quedan por encima de todo lo demás de la página,

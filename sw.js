@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'videoteca-v9';
+const CACHE = 'videoteca-v10';
 const SUPABASE_LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
 const SWAL_LIB = 'https://cdn.jsdelivr.net/npm/sweetalert2@11.14.5/dist/sweetalert2.all.min.js';
 const PINNED = [SUPABASE_LIB, SWAL_LIB];

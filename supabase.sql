@@ -86,6 +86,15 @@ alter table public.videos add constraint videos_category_fk
   foreign key (category_id, user_id) references public.categories (id, user_id) on delete no action;
 create index if not exists videos_category_idx on public.videos (category_id);
 
+-- ---------- Orden manual ----------
+-- Menor "position" = más arriba. Los videos nuevos reciben la menor (quedan arriba);
+-- al arrastrar una tarjeta solo se cambia la suya (queda entre sus vecinas).
+alter table public.videos add column if not exists position double precision;
+update public.videos set position = -extract(epoch from created_at) where position is null;
+alter table public.videos alter column position set default (-extract(epoch from now()));
+alter table public.videos alter column position set not null;
+create index if not exists videos_user_position_idx on public.videos (user_id, position);
+
 -- Pasa a la tabla nueva las categorías escritas como texto en versiones anteriores.
 insert into public.categories (user_id, name)
   select distinct on (user_id, lower(category)) user_id, category
