@@ -159,6 +159,99 @@ button:disabled { opacity: .55; cursor: default; }
 @keyframes float2 { to { transform: translate(-16vmax, -12vmax) scale(1.1); } }
 @keyframes float3 { to { transform: translate(-22vmax, 10vmax) scale(.85); } }
 
+/* Mosaico de "videos" que se desplaza detrás de todo */
+.authwall {
+  position: absolute;
+  inset: -25% -30%;
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  opacity: .5;
+  transform: rotate(-12deg);
+}
+.wallcol {
+  flex: 0 0 clamp(120px, 24vw, 190px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: wallup var(--dur, 60s) linear infinite;
+  will-change: transform;
+}
+.wallcol.down { animation-direction: reverse; }
+@keyframes wallup { to { transform: translateY(calc(-50% - 7px)); } }
+.walltile {
+  position: relative;
+  flex: none;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 14px;
+  background: linear-gradient(135deg, hsl(var(--h1) 85% 62%), hsl(var(--h2) 70% 42%));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+}
+.walltile.tall { aspect-ratio: 3 / 4; }
+/* Luz que se mueve dentro del cuadro, como si fuera la imagen del video */
+.walltile::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(circle at 35% 40%, rgba(255, 255, 255, .45), transparent 40%),
+              radial-gradient(circle at 70% 70%, rgba(0, 0, 0, .35), transparent 45%);
+}
+/* Solo uno de cada tres cuadros "se mueve", para no cargar el teléfono */
+.walltile:nth-child(3n + 1)::before { animation: footage var(--p, 8s) ease-in-out var(--d, 0s) infinite alternate; }
+@keyframes footage { to { transform: translate(18%, -12%) scale(1.2); } }
+.wallplay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .35);
+}
+.wallplay::after {
+  content: "";
+  position: absolute;
+  top: 10px;
+  left: 13px;
+  border-style: solid;
+  border-width: 7px 0 7px 11px;
+  border-color: transparent transparent transparent #fff;
+}
+.walltime {
+  position: absolute;
+  right: 8px;
+  bottom: 10px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .55);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+.wallbar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: #ff3d4f;
+  transform-origin: left;
+  animation: wallprogress var(--p, 8s) linear var(--d, 0s) infinite;
+}
+@keyframes wallprogress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+/* Velo para que la tarjeta se lea bien encima del mosaico */
+.authbg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, var(--scene) 0%, color-mix(in srgb, var(--scene) 70%, transparent) 45%, transparent 100%);
+}
+@supports not (background: color-mix(in srgb, red, blue)) {
+  .authbg::after { background: radial-gradient(ellipse at center, var(--scene) 0%, transparent 90%); opacity: .85; }
+}
+
 .authwrap { width: min(100%, 400px); }
 
 .brand { margin-bottom: 22px; text-align: center; animation: rise .7s cubic-bezier(.2, .8, .2, 1) both; }
@@ -327,7 +420,8 @@ button:disabled { opacity: .55; cursor: default; }
 @keyframes shake { 20%, 80% { transform: translateX(-2px); } 30%, 50%, 70% { transform: translateX(-6px); } 40%, 60% { transform: translateX(6px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .blob, .logo, .brand, .brand h1, .authcard, .authbtn::after { animation: none !important; }
+  .blob, .logo, .brand, .brand h1, .authcard, .authbtn::after,
+  .wallcol, .walltile::before, .wallbar { animation: none !important; }
   .reveal, .field label, .field input { transition: none; }
 }
 /* SweetAlert2 con los colores de la app (claro y oscuro) */

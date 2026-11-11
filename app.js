@@ -1389,6 +1389,35 @@ function renderOtp() {
   });
 }
 
+// Fondo del login: columnas de "videos" que se desplazan sin fin (sin descargas, todo CSS).
+(function buildAuthWall() {
+  const wall = document.getElementById('authWall');
+  if (!wall) return;
+  const hues = [[12, 340], [330, 265], [265, 215], [200, 165], [28, 355], [290, 330], [180, 250], [45, 15]];
+  const durs = ['0:42', '1:15', '3:08', '0:27', '12:40', '2:19', '0:58', '7:31', '4:05', '0:33'];
+  let n = 0;
+  for (let c = 0; c < 10; c += 1) {
+    const col = el('div', 'wallcol');
+    col.style.setProperty('--dur', `${48 + (c % 3) * 14}s`);
+    if (c % 2) col.classList.add('down');
+    const tiles = [];
+    for (let t = 0; t < 14; t += 1) {
+      n += 1;
+      const [h1, h2] = hues[(n * 5 + c) % hues.length];
+      const tile = el('div', `walltile${(n + c) % 4 === 0 ? ' tall' : ''}`);
+      tile.style.setProperty('--h1', h1);
+      tile.style.setProperty('--h2', h2);
+      tile.style.setProperty('--p', `${6 + ((n * 7) % 11)}s`);
+      tile.style.setProperty('--d', `-${(n * 3) % 9}s`);
+      tile.append(el('span', 'wallplay'), el('span', 'walltime', durs[n % durs.length]), el('span', 'wallbar'));
+      tiles.push(tile);
+    }
+    // Dos copias seguidas para que el bucle no tenga saltos.
+    col.append(...tiles, ...tiles.map((t) => t.cloneNode(true)));
+    wall.append(col);
+  }
+}());
+
 const AUTH_SCREENS = {
   login: { title: 'Bienvenido de nuevo', button: 'Entrar' },
   signup: { title: 'Crea tu cuenta', button: 'Crear cuenta' },
