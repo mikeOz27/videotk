@@ -1285,7 +1285,7 @@ ui.authForm.addEventListener('animationend', () => ui.authForm.classList.remove(
 
 // La etiqueta del campo sube cuando tiene texto. El autocompletado de iOS a veces
 // rellena el campo sin avisar, así que además se revisa durante unos segundos.
-const authInputs = [ui.authEmail, ui.authPassword, $('authConfirm')];
+const authInputs = [ui.authEmail, ui.authPassword, $('authConfirm'), $('authCode')];
 function syncFilled() {
   authInputs.forEach((input) => input.parentElement.classList.toggle('filled', input.value !== ''));
 }
@@ -1355,29 +1355,139 @@ async function applySession(session) {
   }
 }
 
+// Pantallas del login:
+//   login  → correo + contraseña        signup → crear cuenta
+//   forgot → pedir enlace para cambiar la contraseña
+//   otp    → pedir un código por correo  code   → escribir ese código
+let authMode = 'login';
 let signingUp = false;
+let otpEmail = '';
+let resendLeft = 0;
 const authConfirmRow = $('authConfirmRow');
 const authConfirm = $('authConfirm');
+const authCode = $('authCode');
 const authSwitch = $('authSwitch');
 const authSwitchText = $('authSwitchText');
+const RESEND_SECONDS = 60; // Supabase tampoco deja enviar dos correos al mismo usuario en menos de 60 s
 
-function setAuthMode(signup) {
-  signingUp = signup;
-  authConfirmRow.classList.toggle('open', signup);
-  authConfirmRow.inert = !signup;
-  authConfirm.required = signup;
+const AUTH_SCREENS = {
+  login: { title: 'Bienvenido de nuevo', button: 'Entrar' },
+  signup: { title: 'Crea tu cuenta', button: 'Crear cuenta' },
+  forgot: {
+    title: 'Recupera tu contraseña',
+    button: 'Enviar enlace',
+    hint: 'Escribe tu correo y te enviaremos un enlace para crear una contraseña nueva.',
+  },
+  otp: {
+    title: 'Entrar con un código',
+    button: 'Enviarme un código',
+    hint: 'Te enviaremos un código a tu correo para entrar sin contraseña.',
+  },
+  code: { title: 'Revisa tu correo', button: 'Entrar' },
+};
+
+function setAuthMode(mode) {
+  if (mode === true) mode = 'signup';   // compatibilidad: setAuthMode(true/false)
+  if (mode === false) mode = 'login';
+  authMode = mode;
+  signingUp = mode === 'signup';
+  const screen = AUTH_SCREENS[mode];
+  const withPassword = mode === 'login' || mode === 'signup';
+
+  $('authTitle').textContent = screen.title;
+  const hint = mode === 'code'
+    ? `Escribe el código que enviamos a ${otpEmail}. Si no lo ves, revisa spam.`
+    : screen.hint || '';
+  $('authHint').textContent = hint;
+  $('authHint').hidden = !hint;
+  ui.authBtn.querySelector('.label').textContent = screen.button;
+
+  $('authEmailField').hidden = mode === 'code';
+  $('authPasswordField').hidden = !withPassword;
+  authConfirmRow.classList.toggle('open', signingUp);
+  authConfirmRow.inert = !signingUp;
+  authConfirm.required = signingUp;
   authConfirm.value = '';
+  $('authCodeField').hidden = mode !== 'code';
+  if (mode !== 'code') authCode.value = '';
+
+  $('authLoginExtras').hidden = mode !== 'login';
+  $('authCodeExtras').hidden = mode !== 'code';
+  $('authSwitchRow').hidden = !withPassword;
+  $('authBackRow').hidden = withPassword;
+  authSwitchText.textContent = signingUp ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?';
+  authSwitch.textContent = signingUp ? 'Entrar' : 'Crear cuenta';
+  ui.authPassword.autocomplete = signingUp ? 'new-password' : 'current-password';
+
   syncFilled();
-  ui.authPassword.autocomplete = signup ? 'new-password' : 'current-password';
-  ui.authBtn.querySelector('.label').textContent = signup ? 'Crear cuenta' : 'Entrar';
-  $('authForgotRow').hidden = signup;
-  $('authTitle').textContent = signup ? 'Crea tu cuenta' : 'Bienvenido de nuevo';
-  authSwitchText.textContent = signup ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?';
-  authSwitch.textContent = signup ? 'Entrar' : 'Crear cuenta';
   setAuthStatus('');
+  if (mode === 'code') authCode.focus();
+  else if (!withPassword && !ui.authEmail.value) ui.authEmail.focus();
 }
 
-authSwitch.addEventListener('click', () => setAuthMode(!signingUp));
+authSwitch.addEventListener('click', () => setAuthMode(signingUp ? 'login' : 'signup'));
+$('authForgot').addEventListener('click', () => setAuthMode('forgot'));
+$('authOtpBtn').addEventListener('click', () => setAuthMode('otp'));
+$('authOtherEmail').addEventListener('click', () => setAuthMode('otp'));
+$('authBack').addEventListener('click', () => setAuthMode('login'));
+authCode.addEventListener('input', () => { authCode.value = authCode.value.replace(/\D/g, '').slice(0, 10); });
+
+function startResendCooldown() {
+  resendLeft = RESEND_SECONDS;
+  const button = $('authResend');
+  const tick = () => {
+    button.disabled = resendLeft > 0;
+    button.textContent = resendLeft > 0 ? `Reenviar código (${resendLeft} s)` : 'Reenviar código';
+    if (resendLeft-- > 0) startResendCooldown.timer = setTimeout(tick, 1000);
+  };
+  clearTimeout(startResendCooldown.timer);
+  tick();
+}
+
+const isRateLimited = (error) => error && (error.status === 429 || /rate_limit/.test(error.code || ''));
+// Un fallo de red llega como excepción (TypeError) o sin código HTTP.
+const isNetworkError = (error) => error && (error instanceof TypeError || (!error.status && !error.code));
+
+// Por seguridad, el mensaje es el mismo exista o no la cuenta (así nadie puede averiguar qué correos están registrados).
+async function sendResetLink(email) {
+  setAuthBusy(true);
+  const { error } = await run(db.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }));
+  setAuthBusy(false);
+  if (isRateLimited(error)) return setAuthStatus('Ya se envió un correo hace poco. Espera un minuto y vuelve a probar.', true);
+  if (isNetworkError(error)) return setAuthStatus('No se pudo enviar. Revisa tu conexión.', true);
+  setAuthStatus(`Si existe una cuenta con ${email}, te enviamos un enlace para restablecer la contraseña. Revisa también la carpeta de spam.`);
+}
+
+// Pide el código. No crea cuentas nuevas (para eso está "Crear cuenta").
+// Si el correo no tiene cuenta, la pantalla sigue igual que si la tuviera, por la misma razón de seguridad.
+async function sendOtpCode(email, isResend) {
+  setAuthBusy(true);
+  const { error } = await run(db.auth.signInWithOtp({ email, options: { shouldCreateUser: false } }));
+  setAuthBusy(false);
+  if (isRateLimited(error)) return setAuthStatus('Ya se envió un código hace poco. Espera un minuto y vuelve a probar.', true);
+  if (isNetworkError(error)) return setAuthStatus('No se pudo enviar el código. Revisa tu conexión.', true);
+  otpEmail = email;
+  if (!isResend) setAuthMode('code');
+  startResendCooldown();
+  if (isResend) setAuthStatus('Te enviamos un código nuevo.');
+}
+
+async function verifyOtpCode() {
+  const token = authCode.value.replace(/\D/g, '');
+  if (token.length < 6) return setAuthStatus('Escribe el código completo que llegó a tu correo.', true);
+  setAuthBusy(true);
+  const { data, error } = await run(db.auth.verifyOtp({ email: otpEmail, token, type: 'email' }));
+  setAuthBusy(false);
+  if (error) {
+    return setAuthStatus(isNetworkError(error)
+      ? 'No se pudo comprobar el código. Revisa tu conexión.'
+      : 'El código no es correcto o ya caducó. Revísalo o pide uno nuevo.', true);
+  }
+  setAuthMode('login');
+  await applySession(data.session);
+}
+
+$('authResend').addEventListener('click', () => { if (resendLeft <= 0 && otpEmail) sendOtpCode(otpEmail, true); });
 
 function authErrorMessage(error) {
   const code = error.code || '';
@@ -1394,10 +1504,13 @@ function authErrorMessage(error) {
 ui.authForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!db) return;
+  if (authMode === 'code') return verifyOtpCode();
   const email = ui.authEmail.value.trim();
   const password = ui.authPassword.value;
   // El formulario no usa los globos del navegador (novalidate): los mensajes salen aquí.
   if (!email || !ui.authEmail.checkValidity()) return setAuthStatus('Escribe un correo válido.', true);
+  if (authMode === 'forgot') return sendResetLink(email);
+  if (authMode === 'otp') return sendOtpCode(email, false);
   if (password.length < 6) return setAuthStatus('La contraseña debe tener al menos 6 caracteres.', true);
   if (signingUp && password !== authConfirm.value) {
     setAuthStatus('Las contraseñas no coinciden.', true);
@@ -1545,25 +1658,7 @@ $('removePhotoBtn').addEventListener('click', async () => {
 
 /* ---------- Contraseña olvidada y cambio de contraseña ---------- */
 
-// Envía un correo con un enlace. Al abrirlo, la app entra sola y pide la contraseña nueva.
-$('authForgot').addEventListener('click', async () => {
-  if (!db) return;
-  const email = ui.authEmail.value.trim();
-  if (!email || !ui.authEmail.checkValidity()) {
-    ui.authEmail.focus();
-    return setAuthStatus('Escribe tu correo arriba y vuelve a pulsar «¿Olvidaste tu contraseña?».', true);
-  }
-  setAuthBusy(true);
-  const { error } = await run(db.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }));
-  setAuthBusy(false);
-  if (error) {
-    return setAuthStatus(error.status === 429 || error.code === 'over_email_send_rate_limit'
-      ? 'Ya se envió un correo hace poco. Espera unos minutos y vuelve a probar.'
-      : 'No se pudo enviar el correo. Revisa tu conexión.', true);
-  }
-  setAuthStatus(`Listo: si ${email} tiene cuenta, te llegará un correo con un enlace para crear una contraseña nueva. Revisa también la carpeta de spam.`);
-});
-
+// El enlace del correo de recuperación (ver sendResetLink) abre la app con sesión y pide la contraseña nueva.
 const passwordDialog = $('passwordDialog');
 const passwordForm = $('passwordForm');
 const newPassword = $('newPassword');

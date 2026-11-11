@@ -357,9 +357,35 @@ button:disabled { opacity: .55; cursor: default; }
   font-weight: 600;
 }
 
-.authforgot { margin: 10px 0 0; text-align: center; font-size: 14px; }
-.authforgot[hidden] { display: none; }
-.authforgot .linkbtn { color: var(--muted); font-weight: 500; }
+.authhint { margin: -8px 0 16px; color: var(--muted); font-size: 14px; text-align: center; overflow-wrap: anywhere; }
+.authhint[hidden], .authswitch[hidden], .field[hidden] { display: none; }
+.authextras { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 12px; }
+.authextras[hidden] { display: none; }
+#authCodeExtras { flex-direction: row; justify-content: center; gap: 18px; }
+.linkbtn.subtle { color: var(--muted); font-weight: 500; font-size: 14px; }
+.linkbtn:disabled { opacity: .55; cursor: default; text-decoration: none; }
+.author { display: flex; align-items: center; gap: 10px; width: 100%; color: var(--muted); font-size: 13px; }
+.author::before, .author::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+/* Botón secundario del login ("Entrar con un código por correo") */
+.authalt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 50px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  transition: border-color .2s, transform .15s;
+}
+.authalt .icon { width: 20px; height: 20px; }
+.authalt:hover { border-color: var(--g2); }
+.authalt:active { transform: scale(.98); }
+#authCode { letter-spacing: .3em; font-size: 20px; font-weight: 700; }
 .authswitch { margin: 16px 0 0; text-align: center; color: var(--muted); font-size: 15px; }
 .linkbtn {
   min-height: 0;
