@@ -1176,7 +1176,7 @@ ui.editForm.addEventListener('submit', async (event) => {
   render();
 });
 
-$('menuBtn').addEventListener('click', () => ui.accountDialog.showModal());
+$('menuBtn').addEventListener('click', () => { setPhotoStatus(''); renderAvatar(); ui.accountDialog.showModal(); });
 $('closeAccount').addEventListener('click', () => ui.accountDialog.close());
 $('settingsBtn').addEventListener('click', () => { renderTheme(); ui.settingsDialog.showModal(); });
 $('closeSettings').addEventListener('click', () => ui.settingsDialog.close());
@@ -1326,9 +1326,13 @@ function showView(loggedIn) {
 
 async function applySession(session) {
   const next = session ? session.user : null;
-  if ((next && next.id) === (user && user.id)) return;
+  if ((next && next.id) === (user && user.id)) {
+    // Mismo usuario con datos nuevos (p. ej. cambió su foto en otro teléfono).
+    if (next) { user = next; renderAvatar(); }
+    return;
+  }
   user = next;
-  [ui.newDialog, ui.viewer, ui.editDialog, ui.accountDialog, ui.settingsDialog, ui.catsDialog].forEach((dialog) => { if (dialog.open) dialog.close(); });
+  [ui.newDialog, ui.viewer, ui.editDialog, ui.accountDialog, ui.settingsDialog, ui.catsDialog, $('passwordDialog')].forEach((dialog) => { if (dialog.open) dialog.close(); });
 
   if (!user) {
     items = [];
@@ -1339,6 +1343,7 @@ async function applySession(session) {
   }
 
   ui.accountEmail.textContent = user.email || '';
+  renderAvatar();
   showView(true);
   await loadItems();
   await migrateLegacy();
@@ -1365,6 +1370,7 @@ function setAuthMode(signup) {
   syncFilled();
   ui.authPassword.autocomplete = signup ? 'new-password' : 'current-password';
   ui.authBtn.querySelector('.label').textContent = signup ? 'Crear cuenta' : 'Entrar';
+  $('authForgotRow').hidden = signup;
   $('authTitle').textContent = signup ? 'Crea tu cuenta' : 'Bienvenido de nuevo';
   authSwitchText.textContent = signup ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?';
   authSwitch.textContent = signup ? 'Entrar' : 'Crear cuenta';
@@ -1428,6 +1434,181 @@ ui.authForm.addEventListener('submit', async (event) => {
   await applySession(data.session);
 });
 
+/* ---------- Foto de perfil ---------- */
+
+const AVATAR_SIZE = 256; // px: se recorta a un cuadrado y se guarda pequeña (unos 20-40 KB)
+
+function avatarUrl() {
+  const url = user && user.user_metadata && user.user_metadata.avatar_url;
+  return safeHttpUrl(url);
+}
+
+// Dibuja la foto, o la inicial del correo sobre un degradado si no hay foto.
+function paintAvatar(node) {
+  const url = avatarUrl();
+  node.replaceChildren();
+  node.classList.toggle('hasphoto', Boolean(url));
+  if (url) {
+    const img = el('img');
+    img.alt = '';
+    img.referrerPolicy = 'no-referrer';
+    img.onerror = () => { node.classList.remove('hasphoto'); node.replaceChildren(initialOf()); };
+    img.src = url;
+    node.append(img);
+  } else {
+    node.append(initialOf());
+  }
+}
+
+function initialOf() {
+  const letter = ((user && user.email) || '?').trim().charAt(0).toUpperCase();
+  return el('span', 'initial', letter || '?');
+}
+
+function renderAvatar() {
+  paintAvatar($('avatarTop'));
+  paintAvatar($('avatarBig'));
+  $('removePhotoBtn').hidden = !avatarUrl();
+}
+
+function setPhotoStatus(message, isError = false) {
+  $('photoStatus').textContent = message;
+  $('photoStatus').classList.toggle('error', isError);
+}
+
+// Lee la imagen elegida y la recorta al centro en un cuadrado de AVATAR_SIZE.
+async function squareImage(file) {
+  let source;
+  try {
+    source = await createImageBitmap(file);
+  } catch {
+    source = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  }
+  const w = source.width;
+  const h = source.height;
+  const side = Math.min(w, h);
+  const canvas = document.createElement('canvas');
+  canvas.width = AVATAR_SIZE;
+  canvas.height = AVATAR_SIZE;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(source, (w - side) / 2, (h - side) / 2, side, side, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
+  if (source.close) source.close();
+  return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('imagen'))), 'image/jpeg', 0.85));
+}
+
+$('changePhotoBtn').addEventListener('click', () => $('photoFile').click());
+
+$('photoFile').addEventListener('change', async () => {
+  const [file] = $('photoFile').files;
+  $('photoFile').value = '';
+  if (!file) return;
+  if (!file.type.startsWith('image/')) return setPhotoStatus('Elige una imagen (foto o captura).', true);
+
+  $('changePhotoBtn').disabled = true;
+  setPhotoStatus('Subiendo foto…');
+  try {
+    const blob = await squareImage(file);
+    const path = `${user.id}/avatar.jpg`;
+    const { error: upError } = await run(db.storage.from('avatars').upload(path, blob, { upsert: true, contentType: 'image/jpeg', cacheControl: '3600' }));
+    if (upError) throw upError;
+    const { data } = db.storage.from('avatars').getPublicUrl(path);
+    // ?v= cambia en cada subida para que el teléfono no muestre la foto anterior guardada.
+    const { data: updated, error } = await run(db.auth.updateUser({ data: { avatar_url: `${data.publicUrl}?v=${Date.now()}` } }));
+    if (error) throw error;
+    if (updated && updated.user) user = updated.user;
+    renderAvatar();
+    setPhotoStatus('Foto actualizada.');
+  } catch (error) {
+    setPhotoStatus(error && error.message === 'imagen'
+      ? 'No se pudo leer esa imagen. Prueba con otra.'
+      : 'No se pudo subir la foto. Revisa tu conexión.', true);
+  } finally {
+    $('changePhotoBtn').disabled = false;
+  }
+});
+
+$('removePhotoBtn').addEventListener('click', async () => {
+  setPhotoStatus('Quitando foto…');
+  await run(db.storage.from('avatars').remove([`${user.id}/avatar.jpg`]));
+  const { data: updated, error } = await run(db.auth.updateUser({ data: { avatar_url: null } }));
+  if (error) return setPhotoStatus('No se pudo quitar la foto. Revisa tu conexión.', true);
+  if (updated && updated.user) user = updated.user;
+  renderAvatar();
+  setPhotoStatus('Foto quitada.');
+});
+
+/* ---------- Contraseña olvidada y cambio de contraseña ---------- */
+
+// Envía un correo con un enlace. Al abrirlo, la app entra sola y pide la contraseña nueva.
+$('authForgot').addEventListener('click', async () => {
+  if (!db) return;
+  const email = ui.authEmail.value.trim();
+  if (!email || !ui.authEmail.checkValidity()) {
+    ui.authEmail.focus();
+    return setAuthStatus('Escribe tu correo arriba y vuelve a pulsar «¿Olvidaste tu contraseña?».', true);
+  }
+  setAuthBusy(true);
+  const { error } = await run(db.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }));
+  setAuthBusy(false);
+  if (error) {
+    return setAuthStatus(error.status === 429 || error.code === 'over_email_send_rate_limit'
+      ? 'Ya se envió un correo hace poco. Espera unos minutos y vuelve a probar.'
+      : 'No se pudo enviar el correo. Revisa tu conexión.', true);
+  }
+  setAuthStatus(`Listo: si ${email} tiene cuenta, te llegará un correo con un enlace para crear una contraseña nueva. Revisa también la carpeta de spam.`);
+});
+
+const passwordDialog = $('passwordDialog');
+const passwordForm = $('passwordForm');
+const newPassword = $('newPassword');
+const newPassword2 = $('newPassword2');
+
+function setPasswordStatus(message, isError = false) {
+  $('passwordStatus').textContent = message;
+  $('passwordStatus').classList.toggle('error', isError);
+}
+
+function openPasswordDialog(fromEmail) {
+  passwordForm.reset();
+  setPasswordStatus('');
+  $('passwordTitle').textContent = fromEmail ? 'Crea tu contraseña nueva' : 'Cambiar contraseña';
+  $('passwordHint').textContent = fromEmail
+    ? 'Entraste con el enlace del correo. Ahora elige una contraseña nueva (mínimo 6 caracteres).'
+    : 'Escribe tu nueva contraseña (mínimo 6 caracteres).';
+  if (!passwordDialog.open) passwordDialog.showModal();
+  newPassword.focus();
+}
+
+$('changePasswordBtn').addEventListener('click', () => {
+  ui.accountDialog.close();
+  openPasswordDialog(false);
+});
+$('cancelPassword').addEventListener('click', () => passwordDialog.close());
+
+passwordForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (newPassword.value.length < 6) return setPasswordStatus('Debe tener al menos 6 caracteres.', true);
+  if (newPassword.value !== newPassword2.value) return setPasswordStatus('Las contraseñas no coinciden.', true);
+  $('savePassword').disabled = true;
+  setPasswordStatus('Guardando…');
+  const { error } = await run(db.auth.updateUser({ password: newPassword.value }));
+  $('savePassword').disabled = false;
+  if (error) {
+    return setPasswordStatus(error.code === 'same_password'
+      ? 'Esa ya es tu contraseña actual. Elige otra.'
+      : error.code === 'weak_password' ? 'Es muy débil. Usa al menos 6 caracteres.'
+      : 'No se pudo cambiar. Revisa tu conexión.', true);
+  }
+  passwordDialog.close();
+  notify('Contraseña cambiada. Úsala la próxima vez que entres.');
+});
+
 /* ---------- Inicio ---------- */
 
 // Android puede abrir la app desde el menú Compartir con el link en la URL.
@@ -1454,7 +1635,13 @@ async function init() {
 
   db = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey);
   // setTimeout: Supabase recomienda no llamar a la base de datos dentro de este aviso.
-  db.auth.onAuthStateChange((_event, session) => { setTimeout(() => applySession(session), 0); });
+  db.auth.onAuthStateChange((event, session) => {
+    setTimeout(async () => {
+      await applySession(session);
+      // Llegó desde el enlace de "¿Olvidaste tu contraseña?": se pide la nueva.
+      if (event === 'PASSWORD_RECOVERY' && session) openPasswordDialog(true);
+    }, 0);
+  });
   const { data } = await run(db.auth.getSession());
   await applySession(data && data.session);
   if (!user) showView(false);

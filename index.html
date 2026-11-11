@@ -67,6 +67,7 @@
 
         <p id="authStatus" class="status authstatus" role="status"></p>
         <button id="authBtn" class="authbtn" type="submit"><span class="label">Entrar</span><span class="spinner" aria-hidden="true"></span></button>
+        <p id="authForgotRow" class="authforgot"><button id="authForgot" class="linkbtn" type="button">¿Olvidaste tu contraseña?</button></p>
         <p class="authswitch">
           <span id="authSwitchText">¿No tienes cuenta?</span>
           <button id="authSwitch" class="linkbtn" type="button">Crear cuenta</button>
@@ -79,11 +80,12 @@
     <header class="top">
       <h1>VideoTk</h1>
       <div class="topactions">
-        <button id="menuBtn" class="ghost" type="button" aria-haspopup="dialog">Cuenta</button>
         <button id="settingsBtn" class="ghost iconbtn" type="button" aria-haspopup="dialog" aria-label="Configuración" title="Configuración">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
         </button>
-        <button id="newBtn" class="primary" type="button" aria-haspopup="dialog">+ Nuevo</button>
+        <button id="menuBtn" class="avatarbtn" type="button" aria-haspopup="dialog" aria-label="Tu cuenta" title="Tu cuenta">
+          <span id="avatarTop" class="avatar sm"></span>
+        </button>
       </div>
     </header>
 
@@ -105,6 +107,11 @@
       <ul id="list" class="list"></ul>
       <p id="empty" class="empty" hidden></p>
     </section>
+
+    <button id="newBtn" class="fab" type="button" aria-haspopup="dialog" aria-label="Nuevo video">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Nuevo</span>
+    </button>
   </main>
 
   <dialog id="newDialog" aria-labelledby="newTitle">
@@ -183,12 +190,40 @@
 
   <dialog id="accountDialog" aria-labelledby="accountTitle">
     <h2 id="accountTitle">Tu cuenta</h2>
-    <p class="hint">Sesión iniciada como</p>
-    <p id="accountEmail" class="accountemail"></p>
+    <div class="profile">
+      <span id="avatarBig" class="avatar lg"></span>
+      <div class="profileinfo">
+        <p class="hint">Sesión iniciada como</p>
+        <p id="accountEmail" class="accountemail"></p>
+        <div class="photoactions">
+          <button id="changePhotoBtn" class="secondary" type="button">Cambiar foto</button>
+          <button id="removePhotoBtn" class="ghost" type="button" hidden>Quitar</button>
+        </div>
+        <p id="photoStatus" class="status" role="status"></p>
+      </div>
+      <input id="photoFile" type="file" accept="image/*" hidden>
+    </div>
     <div class="stack">
+      <button id="changePasswordBtn" class="secondary" type="button">Cambiar contraseña</button>
       <button id="logoutBtn" class="danger-solid" type="button">Cerrar sesión</button>
       <button id="closeAccount" class="ghost" type="button">Cerrar</button>
     </div>
+  </dialog>
+
+  <dialog id="passwordDialog" aria-labelledby="passwordTitle">
+    <form id="passwordForm" novalidate>
+      <h2 id="passwordTitle">Nueva contraseña</h2>
+      <p id="passwordHint" class="hint">Escribe tu nueva contraseña (mínimo 6 caracteres).</p>
+      <label for="newPassword">Nueva contraseña</label>
+      <input id="newPassword" type="password" autocomplete="new-password" minlength="6" required>
+      <label for="newPassword2">Repítela</label>
+      <input id="newPassword2" type="password" autocomplete="new-password" minlength="6" required>
+      <p id="passwordStatus" class="status" role="status"></p>
+      <div class="actions">
+        <button id="cancelPassword" class="ghost" type="button">Cancelar</button>
+        <button id="savePassword" class="primary" type="submit">Guardar</button>
+      </div>
+    </form>
   </dialog>
 
   <dialog id="settingsDialog" aria-labelledby="settingsTitle">

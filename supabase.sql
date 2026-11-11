@@ -104,3 +104,25 @@ update public.videos v set category_id = c.id
   from public.categories c
   where v.category <> '' and v.category_id is null
     and c.user_id = v.user_id and lower(c.name) = lower(v.category);
+
+-- ---------- Fotos de perfil ----------
+-- Carpeta pública "avatars" (máx. 1 MB, solo imágenes). Cada usuario solo puede
+-- subir, cambiar o borrar archivos dentro de su carpeta (la que se llama como su id).
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('avatars', 'avatars', true, 1048576, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do update set public = excluded.public, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "avatars: ver la propia" on storage.objects;
+drop policy if exists "avatars: subir la propia" on storage.objects;
+drop policy if exists "avatars: cambiar la propia" on storage.objects;
+drop policy if exists "avatars: borrar la propia" on storage.objects;
+
+create policy "avatars: ver la propia" on storage.objects for select to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = (select auth.uid())::text);
+create policy "avatars: subir la propia" on storage.objects for insert to authenticated
+  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = (select auth.uid())::text);
+create policy "avatars: cambiar la propia" on storage.objects for update to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = (select auth.uid())::text)
+  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = (select auth.uid())::text);
+create policy "avatars: borrar la propia" on storage.objects for delete to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = (select auth.uid())::text);
