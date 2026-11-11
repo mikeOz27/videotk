@@ -361,7 +361,8 @@ button:disabled { opacity: .55; cursor: default; }
 .authhint[hidden], .authswitch[hidden], .field[hidden] { display: none; }
 .authextras { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 12px; }
 .authextras[hidden] { display: none; }
-#authCodeExtras { flex-direction: row; justify-content: center; gap: 18px; }
+#authCodeExtras { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 6px 18px; }
+#authCodeExtras .linkbtn { white-space: nowrap; }
 .linkbtn.subtle { color: var(--muted); font-weight: 500; font-size: 14px; }
 .linkbtn:disabled { opacity: .55; cursor: default; text-decoration: none; }
 .author { display: flex; align-items: center; gap: 10px; width: 100%; color: var(--muted); font-size: 13px; }
@@ -385,7 +386,60 @@ button:disabled { opacity: .55; cursor: default; }
 .authalt .icon { width: 20px; height: 20px; }
 .authalt:hover { border-color: var(--g2); }
 .authalt:active { transform: scale(.98); }
-#authCode { letter-spacing: .3em; font-size: 20px; font-weight: 700; }
+/* Código por correo: un cuadro por dígito */
+.otp { position: relative; margin: 4px 0 14px; }
+.otp[hidden] { display: none; }
+.otpboxes { display: grid; grid-template-columns: repeat(var(--otp-len, 6), minmax(0, 1fr)); gap: 8px; }
+.otpbox {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 58px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--field);
+  color: var(--text);
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: border-color .15s, box-shadow .15s, transform .15s, background .15s;
+}
+.otpbox.filled { border-color: color-mix(in srgb, var(--g2) 45%, var(--line)); background: var(--surface); animation: otppop .18s ease; }
+.otpbox.active { border-color: var(--g2); background: var(--surface); box-shadow: 0 0 0 4px rgba(255, 61, 127, .16); }
+.otpbox.active:empty::after { /* cursor que parpadea en el cuadro que toca */
+  content: "";
+  width: 2px;
+  height: 24px;
+  border-radius: 1px;
+  background: var(--g2);
+  animation: otpcaret 1s steps(1) infinite;
+}
+@keyframes otppop { from { transform: scale(.88); } }
+@keyframes otpcaret { 50% { opacity: 0; } }
+/* El campo real queda encima de los cuadros, transparente, para tocar, escribir y pegar. */
+.otpinput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 16px; /* evita el zoom automático en iOS */
+  letter-spacing: 0;
+  outline: none;
+  -webkit-text-fill-color: transparent;
+}
+.otpinput::selection { background: transparent; }
+.otpinput:focus-visible { outline: none; }
+@media (max-width: 359px) {
+  .otpboxes { gap: 4px; }
+  .otpbox { height: 46px; font-size: 19px; border-radius: 10px; }
+}
+.authcard.shake .otpbox { border-color: var(--danger); }
 .authswitch { margin: 16px 0 0; text-align: center; color: var(--muted); font-size: 15px; }
 .linkbtn {
   min-height: 0;

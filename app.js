@@ -1369,6 +1369,25 @@ const authCode = $('authCode');
 const authSwitch = $('authSwitch');
 const authSwitchText = $('authSwitchText');
 const RESEND_SECONDS = 60; // Supabase tampoco deja enviar dos correos al mismo usuario en menos de 60 s
+const OTP_LENGTH = 6;      // = "Email OTP length" en Supabase (Authentication → Sign In / Providers → Email)
+let verifyingOtp = false;
+
+// Dibuja un cuadro por dígito; el cuadro activo (el siguiente por escribir) se resalta.
+function renderOtp() {
+  const boxes = $('otpBoxes');
+  if (boxes.children.length !== OTP_LENGTH) {
+    boxes.replaceChildren(...Array.from({ length: OTP_LENGTH }, () => el('span', 'otpbox')));
+    boxes.style.setProperty('--otp-len', OTP_LENGTH);
+    authCode.maxLength = OTP_LENGTH;
+  }
+  const value = authCode.value;
+  const focused = document.activeElement === authCode;
+  [...boxes.children].forEach((box, i) => {
+    box.textContent = value[i] || '';
+    box.classList.toggle('filled', i < value.length);
+    box.classList.toggle('active', focused && i === Math.min(value.length, OTP_LENGTH - 1));
+  });
+}
 
 const AUTH_SCREENS = {
   login: { title: 'Bienvenido de nuevo', button: 'Entrar' },
@@ -1396,7 +1415,7 @@ function setAuthMode(mode) {
 
   $('authTitle').textContent = screen.title;
   const hint = mode === 'code'
-    ? `Escribe el código que enviamos a ${otpEmail}. Si no lo ves, revisa spam.`
+    ? `Escribe o pega el código de ${OTP_LENGTH} dígitos que enviamos a ${otpEmail}. Si no lo ves, revisa spam.`
     : screen.hint || '';
   $('authHint').textContent = hint;
   $('authHint').hidden = !hint;
@@ -1410,6 +1429,7 @@ function setAuthMode(mode) {
   authConfirm.value = '';
   $('authCodeField').hidden = mode !== 'code';
   if (mode !== 'code') authCode.value = '';
+  renderOtp();
 
   $('authLoginExtras').hidden = mode !== 'login';
   $('authCodeExtras').hidden = mode !== 'code';
@@ -1430,7 +1450,15 @@ $('authForgot').addEventListener('click', () => setAuthMode('forgot'));
 $('authOtpBtn').addEventListener('click', () => setAuthMode('otp'));
 $('authOtherEmail').addEventListener('click', () => setAuthMode('otp'));
 $('authBack').addEventListener('click', () => setAuthMode('login'));
-authCode.addEventListener('input', () => { authCode.value = authCode.value.replace(/\D/g, '').slice(0, 10); });
+// Solo dígitos; al completar los cuadros (escribiendo, pegando o con el autocompletado) se comprueba solo.
+authCode.addEventListener('input', () => {
+  authCode.value = authCode.value.replace(/\D/g, '').slice(0, OTP_LENGTH);
+  renderOtp();
+  if (authCode.value.length === OTP_LENGTH && !verifyingOtp) verifyOtpCode();
+});
+['focus', 'blur', 'keyup', 'click'].forEach((type) => authCode.addEventListener(type, renderOtp));
+// Que el cursor quede siempre al final (se escribe en orden, cuadro a cuadro).
+authCode.addEventListener('select', () => { const end = authCode.value.length; authCode.setSelectionRange(end, end); });
 
 function startResendCooldown() {
   resendLeft = RESEND_SECONDS;
@@ -1445,6 +1473,8 @@ function startResendCooldown() {
 }
 
 const isRateLimited = (error) => error && (error.status === 429 || /rate_limit/.test(error.code || ''));
+// 5xx: falló el servicio de correo (p. ej. el SMTP rechazó el envío). Se avisa en vez de decir "enviado".
+const isServerError = (error) => error && error.status >= 500;
 // Un fallo de red llega como excepción (TypeError) o sin código HTTP.
 const isNetworkError = (error) => error && (error instanceof TypeError || (!error.status && !error.code));
 
@@ -1455,6 +1485,7 @@ async function sendResetLink(email) {
   setAuthBusy(false);
   if (isRateLimited(error)) return setAuthStatus('Ya se envió un correo hace poco. Espera un minuto y vuelve a probar.', true);
   if (isNetworkError(error)) return setAuthStatus('No se pudo enviar. Revisa tu conexión.', true);
+  if (isServerError(error)) return setAuthStatus('No pudimos enviar el correo en este momento. Inténtalo más tarde.', true);
   setAuthStatus(`Si existe una cuenta con ${email}, te enviamos un enlace para restablecer la contraseña. Revisa también la carpeta de spam.`);
 }
 
@@ -1466,6 +1497,7 @@ async function sendOtpCode(email, isResend) {
   setAuthBusy(false);
   if (isRateLimited(error)) return setAuthStatus('Ya se envió un código hace poco. Espera un minuto y vuelve a probar.', true);
   if (isNetworkError(error)) return setAuthStatus('No se pudo enviar el código. Revisa tu conexión.', true);
+  if (isServerError(error)) return setAuthStatus('No pudimos enviar el correo en este momento. Inténtalo más tarde.', true);
   otpEmail = email;
   if (!isResend) setAuthMode('code');
   startResendCooldown();
@@ -1474,11 +1506,18 @@ async function sendOtpCode(email, isResend) {
 
 async function verifyOtpCode() {
   const token = authCode.value.replace(/\D/g, '');
-  if (token.length < 6) return setAuthStatus('Escribe el código completo que llegó a tu correo.', true);
+  if (token.length < OTP_LENGTH) return setAuthStatus(`Escribe los ${OTP_LENGTH} dígitos del código que llegó a tu correo.`, true);
+  verifyingOtp = true;
   setAuthBusy(true);
+  setAuthStatus('Comprobando el código…');
   const { data, error } = await run(db.auth.verifyOtp({ email: otpEmail, token, type: 'email' }));
   setAuthBusy(false);
+  verifyingOtp = false;
   if (error) {
+    // Se vacían los cuadros para escribir o pegar el código otra vez.
+    authCode.value = '';
+    renderOtp();
+    authCode.focus();
     return setAuthStatus(isNetworkError(error)
       ? 'No se pudo comprobar el código. Revisa tu conexión.'
       : 'El código no es correcto o ya caducó. Revísalo o pide uno nuevo.', true);
