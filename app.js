@@ -1324,8 +1324,27 @@ function showView(loggedIn) {
   if (!loggedIn) watchAutofill();
 }
 
+// Llegó desde el enlace de "¿Olvidaste tu contraseña?": Supabase ya abrió sesión, pero no se entra
+// a la app hasta elegir la contraseña nueva (aunque esa pestaña ya tuviera la sesión iniciada).
+// Se guarda en sessionStorage para que recargar la página no se salte este paso.
+let recovering = false;
+function setRecovering(on) {
+  recovering = on;
+  try {
+    if (on) sessionStorage.setItem('videotk.recovering', '1');
+    else sessionStorage.removeItem('videotk.recovering');
+  } catch { /* sin almacenamiento: solo dura mientras la página esté abierta */ }
+}
+
 async function applySession(session) {
   const next = session ? session.user : null;
+  if (next && recovering) {
+    user = next;
+    [ui.newDialog, ui.viewer, ui.editDialog, ui.accountDialog, ui.settingsDialog, ui.catsDialog, $('passwordDialog')].forEach((dialog) => { if (dialog.open) dialog.close(); });
+    showView(false);
+    if (authMode !== 'reset') setAuthMode('reset');
+    return;
+  }
   if ((next && next.id) === (user && user.id)) {
     // Mismo usuario con datos nuevos (p. ej. cambió su foto en otro teléfono).
     if (next) { user = next; renderAvatar(); }
@@ -1341,7 +1360,10 @@ async function applySession(session) {
     showView(false);
     return;
   }
+  await enterApp();
+}
 
+async function enterApp() {
   ui.accountEmail.textContent = user.email || '';
   renderAvatar();
   showView(true);
@@ -1432,6 +1454,7 @@ const AUTH_SCREENS = {
     hint: 'Te enviaremos un código a tu correo para entrar sin contraseña.',
   },
   code: { title: 'Revisa tu correo', button: 'Entrar' },
+  reset: { title: 'Crea tu contraseña nueva', button: 'Guardar contraseña' },
 };
 
 function setAuthMode(mode) {
@@ -1441,20 +1464,26 @@ function setAuthMode(mode) {
   signingUp = mode === 'signup';
   const screen = AUTH_SCREENS[mode];
   const withPassword = mode === 'login' || mode === 'signup';
+  const isReset = mode === 'reset';
+  const showConfirm = signingUp || isReset;
 
   $('authTitle').textContent = screen.title;
   const hint = mode === 'code'
     ? `Escribe o pega el código de ${OTP_LENGTH} dígitos que enviamos a ${otpEmail}. Si no lo ves, revisa spam.`
-    : screen.hint || '';
+    : isReset
+      ? `Elige una contraseña nueva para ${(user && user.email) || 'tu cuenta'} (mínimo 6 caracteres).`
+      : screen.hint || '';
   $('authHint').textContent = hint;
   $('authHint').hidden = !hint;
   ui.authBtn.querySelector('.label').textContent = screen.button;
 
-  $('authEmailField').hidden = mode === 'code';
-  $('authPasswordField').hidden = !withPassword;
-  authConfirmRow.classList.toggle('open', signingUp);
-  authConfirmRow.inert = !signingUp;
-  authConfirm.required = signingUp;
+  $('authEmailField').hidden = mode === 'code' || isReset;
+  $('authPasswordField').hidden = !withPassword && !isReset;
+  document.querySelector('label[for="authPassword"]').textContent = isReset ? 'Contraseña nueva' : 'Contraseña';
+  if (isReset) ui.authPassword.value = '';
+  authConfirmRow.classList.toggle('open', showConfirm);
+  authConfirmRow.inert = !showConfirm;
+  authConfirm.required = showConfirm;
   authConfirm.value = '';
   $('authCodeField').hidden = mode !== 'code';
   if (mode !== 'code') authCode.value = '';
@@ -1466,11 +1495,13 @@ function setAuthMode(mode) {
   $('authBackRow').hidden = withPassword;
   authSwitchText.textContent = signingUp ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?';
   authSwitch.textContent = signingUp ? 'Entrar' : 'Crear cuenta';
-  ui.authPassword.autocomplete = signingUp ? 'new-password' : 'current-password';
+  $('authBack').textContent = isReset ? '← Volver al inicio de sesión' : '← Volver a entrar con contraseña';
+  ui.authPassword.autocomplete = showConfirm ? 'new-password' : 'current-password';
 
   syncFilled();
   setAuthStatus('');
   if (mode === 'code') authCode.focus();
+  else if (isReset) ui.authPassword.focus();
   else if (!withPassword && !ui.authEmail.value) ui.authEmail.focus();
 }
 
@@ -1478,7 +1509,35 @@ authSwitch.addEventListener('click', () => setAuthMode(signingUp ? 'login' : 'si
 $('authForgot').addEventListener('click', () => setAuthMode('forgot'));
 $('authOtpBtn').addEventListener('click', () => setAuthMode('otp'));
 $('authOtherEmail').addEventListener('click', () => setAuthMode('otp'));
-$('authBack').addEventListener('click', () => setAuthMode('login'));
+$('authBack').addEventListener('click', async () => {
+  if (authMode !== 'reset') return setAuthMode('login');
+  // Sin contraseña nueva no se entra: se cierra la sesión que abrió el enlace.
+  setRecovering(false);
+  setAuthMode('login');
+  if (db) await run(db.auth.signOut());
+});
+
+async function saveNewPassword() {
+  const password = ui.authPassword.value;
+  if (password.length < 6) return setAuthStatus('Debe tener al menos 6 caracteres.', true);
+  if (password !== authConfirm.value) return setAuthStatus('Las contraseñas no coinciden.', true);
+  setAuthBusy(true);
+  setAuthStatus('Guardando…');
+  const { error } = await run(db.auth.updateUser({ password }));
+  setAuthBusy(false);
+  if (error) {
+    return setAuthStatus(error.code === 'same_password'
+      ? 'Esa ya es tu contraseña actual. Elige otra.'
+      : error.code === 'weak_password' ? 'Es muy débil. Usa al menos 6 caracteres.'
+      : isNetworkError(error) ? 'No se pudo guardar. Revisa tu conexión.'
+      : 'El enlace ya no es válido. Pide uno nuevo desde "¿Olvidaste tu contraseña?".', true);
+  }
+  setRecovering(false);
+  ui.authPassword.value = '';
+  setAuthMode('login');
+  await enterApp();
+  notify('Contraseña cambiada. Úsala la próxima vez que entres.');
+}
 // Solo dígitos; al completar los cuadros (escribiendo, pegando o con el autocompletado) se comprueba solo.
 authCode.addEventListener('input', () => {
   authCode.value = authCode.value.replace(/\D/g, '').slice(0, OTP_LENGTH);
@@ -1573,6 +1632,7 @@ ui.authForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!db) return;
   if (authMode === 'code') return verifyOtpCode();
+  if (authMode === 'reset') return saveNewPassword();
   const email = ui.authEmail.value.trim();
   const password = ui.authPassword.value;
   // El formulario no usa los globos del navegador (novalidate): los mensajes salen aquí.
@@ -1796,18 +1856,32 @@ async function init() {
     return;
   }
 
+  // Se lee el enlace del correo antes de que Supabase lo quite de la dirección.
+  const linkParams = new URLSearchParams(location.hash.slice(1) || location.search.slice(1));
+  let pending = false;
+  try { pending = sessionStorage.getItem('videotk.recovering') === '1'; } catch { /* nada */ }
+  if (linkParams.get('type') === 'recovery' || pending) setRecovering(true);
+  const linkError = linkParams.get('error_code') || linkParams.get('error');
+
   db = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey);
   // setTimeout: Supabase recomienda no llamar a la base de datos dentro de este aviso.
   db.auth.onAuthStateChange((event, session) => {
-    setTimeout(async () => {
-      await applySession(session);
-      // Llegó desde el enlace de "¿Olvidaste tu contraseña?": se pide la nueva.
-      if (event === 'PASSWORD_RECOVERY' && session) openPasswordDialog(true);
-    }, 0);
+    if (event === 'PASSWORD_RECOVERY') setRecovering(true);
+    setTimeout(() => applySession(session), 0);
   });
   const { data } = await run(db.auth.getSession());
-  await applySession(data && data.session);
+  const session = data && data.session;
+  if (recovering && !session) setRecovering(false); // el enlace no abrió sesión (caducado o usado)
+  if (linkParams.get('type') === 'recovery') history.replaceState(null, '', location.pathname);
+  await applySession(session);
   if (!user) showView(false);
+
+  if (linkError) {
+    history.replaceState(null, '', location.pathname);
+    const message = 'El enlace del correo ya no es válido o caducó. Pide uno nuevo.';
+    if (user) notify(message);
+    else { setAuthMode('forgot'); setAuthStatus(message, true); }
+  }
 }
 
 init();
