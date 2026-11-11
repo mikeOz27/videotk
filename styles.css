@@ -915,3 +915,39 @@ dialog textarea { margin-top: 10px; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .stack { display: grid; gap: 8px; }
 .hint { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+
+/* Login en pantallas bajas: todo más compacto para que quepa sin scroll y quede centrado */
+@media (max-height: 860px) {
+  .auth { padding-top: calc(env(safe-area-inset-top) + 16px); padding-bottom: calc(env(safe-area-inset-bottom) + 16px); }
+  .brand { margin-bottom: 14px; }
+  .logo { width: 56px; height: 56px; margin-bottom: 8px; border-radius: 18px; }
+  .logo svg { width: 30px; height: 30px; }
+  .brand h1 { font-size: 30px; }
+  .tagline { margin-top: 2px; font-size: 14px; }
+  .authcard { padding: 18px 18px 16px; }
+  .authtitle { margin-bottom: 12px; font-size: 19px; }
+  .authhint { margin: -4px 0 12px; }
+  .field { margin-bottom: 10px; }
+  .field input { height: 52px; padding-top: 18px; }
+  .field label, .fieldicon { top: 16px; }
+  .eye { top: 4px; }
+  .authstatus { min-height: 18px; margin: 0 0 6px; }
+  .authbtn { height: 50px; }
+  .authextras { gap: 6px; margin-top: 8px; }
+  .authalt { height: 46px; }
+  .otpbox { height: 52px; }
+  .authswitch { margin-top: 10px; }
+}
+@media (max-height: 700px) {
+  .logo { display: none; }
+  .brand { margin-bottom: 10px; }
+  .brand h1 { font-size: 26px; }
+  .tagline { display: none; }
+  .authtitle { margin-bottom: 10px; font-size: 18px; }
+  .field input { height: 48px; padding-top: 16px; }
+  .field label, .fieldicon { top: 14px; }
+  .eye { top: 2px; }
+  .authbtn { height: 46px; }
+  .authalt { height: 42px; }
+  .otpbox { height: 48px; font-size: 22px; }
+}
