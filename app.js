@@ -6,6 +6,10 @@ const COLUMNS = 'id,url,title,source,thumbnail,description,category_id,position,
 const FILTER_KEY = 'videotk.filter';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const $ = (id) => document.getElementById(id);
+// Dentro de la app de Android/iOS (Capacitor) la página vive en https://localhost:
+// los enlaces de los correos (confirmar cuenta, cambiar contraseña) deben ir a la web publicada.
+const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+const APP_URL = IS_NATIVE ? 'https://mikeoz27.github.io/videotk/' : location.origin + location.pathname;
 
 const ui = {
   authView: $('authView'), appView: $('appView'), authForm: $('authForm'), authEmail: $('authEmail'),
@@ -1569,7 +1573,7 @@ const isNetworkError = (error) => error && (error instanceof TypeError || (!erro
 // Por seguridad, el mensaje es el mismo exista o no la cuenta (así nadie puede averiguar qué correos están registrados).
 async function sendResetLink(email) {
   setAuthBusy(true);
-  const { error } = await run(db.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }));
+  const { error } = await run(db.auth.resetPasswordForEmail(email, { redirectTo: APP_URL }));
   setAuthBusy(false);
   if (isRateLimited(error)) return setAuthStatus('Ya se envió un correo hace poco. Espera un minuto y vuelve a probar.', true);
   if (isNetworkError(error)) return setAuthStatus('No se pudo enviar. Revisa tu conexión.', true);
@@ -1648,7 +1652,7 @@ ui.authForm.addEventListener('submit', async (event) => {
   setAuthBusy(true);
   setAuthStatus('');
   const { data, error } = await run(signingUp
-    ? db.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } })
+    ? db.auth.signUp({ email, password, options: { emailRedirectTo: APP_URL } })
     : db.auth.signInWithPassword({ email, password }));
   setAuthBusy(false);
   if (error) {
@@ -1887,6 +1891,7 @@ async function init() {
 init();
 
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-if ('serviceWorker' in navigator) {
+// En la app de Android/iOS los archivos ya vienen dentro: no hace falta el service worker.
+if ('serviceWorker' in navigator && !IS_NATIVE) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }

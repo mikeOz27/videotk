@@ -1,0 +1,20 @@
+{
+  "name": "videotk-mobile",
+  "private": true,
+  "version": "1.0.0",
+  "description": "App Android/iOS de VideoTk con Capacitor (usa los archivos web de la carpeta de arriba).",
+  "scripts": {
+    "copy-web": "node scripts/copy-web.mjs",
+    "sync": "npm run copy-web && cap sync android",
+    "apk": "npm run sync && node scripts/build-apk.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/core": "8.6.0",
+    "@supabase/supabase-js": "2.45.4",
+    "sweetalert2": "11.14.5"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0"
+  }
+}

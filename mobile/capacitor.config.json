@@ -1,0 +1,14 @@
+{
+  "appId": "io.github.mikeoz27.videotk",
+  "appName": "VideoTk",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#14151a"
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "native",
+      "initialViewportFitValueHint": "cover"
+    }
+  }
+}
