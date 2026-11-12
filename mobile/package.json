@@ -6,11 +6,13 @@
   "scripts": {
     "copy-web": "node scripts/copy-web.mjs",
     "sync": "npm run copy-web && cap sync android",
+    "sync:ios": "npm run copy-web && cap sync ios",
     "apk": "npm run sync && node scripts/build-apk.mjs"
   },
   "dependencies": {
     "@capacitor/android": "8.6.0",
     "@capacitor/core": "8.6.0",
+    "@capacitor/ios": "8.6.0",
     "@supabase/supabase-js": "2.45.4",
     "sweetalert2": "11.14.5"
   },

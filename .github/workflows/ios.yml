@@ -1,0 +1,65 @@
+# Compila la app de iOS en una Mac de GitHub y deja un .ipa SIN FIRMAR para descargar.
+# Se instala desde Windows con Sideloadly usando un Apple ID (con cuenta gratuita dura 7 días).
+# Se lanza solo al subir cambios de la carpeta mobile, o a mano para tomar cambios de la web:
+# GitHub → Actions → "App iOS (.ipa)" → Run workflow.
+name: App iOS (.ipa)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/ios.yml'
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Elegir el Xcode más reciente
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Copiar la web al proyecto de iOS
+        run: npm run sync:ios
+
+      - name: Compilar (sin firmar)
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Empaquetar el .ipa
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -qr VideoTk.ipa Payload
+          ls -lh VideoTk.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VideoTk-ipa
+          path: mobile/VideoTk.ipa
+          retention-days: 14
