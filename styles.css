@@ -168,7 +168,9 @@ button:disabled { opacity: .55; cursor: default; }
   gap: 14px;
   opacity: .5;
   transform: rotate(-12deg);
+  animation: wallin 1.4s ease both; /* aparece suave, sin saltar de golpe */
 }
+@keyframes wallin { from { opacity: 0; } }
 .wallcol {
   flex: 0 0 clamp(120px, 24vw, 190px);
   display: flex;
@@ -950,4 +952,84 @@ dialog textarea { margin-top: 10px; }
   .authbtn { height: 46px; }
   .authalt { height: 42px; }
   .otpbox { height: 48px; font-size: 22px; }
+}
+
+/* Intro al abrir la app: el logo late, suelta un anillo de luz y aparece el nombre; luego se desvanece y entra el login */
+.intro { display: none; }
+html.show-intro .intro {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 18px;
+  background: #14151a;
+  transition: opacity .5s ease, visibility .5s ease;
+}
+html.show-intro.intro-out .intro { opacity: 0; visibility: hidden; }
+html.show-intro.intro-out .introlog { transform: scale(1.25); transition: transform .5s ease; }
+/* Mientras dura la intro, el login espera (sus animaciones de entrada arrancan cuando la intro se va) */
+html.show-intro:not(.intro-out) .auth,
+html.show-intro:not(.intro-out) .auth * { animation-play-state: paused !important; }
+.introlog {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  overflow: visible;
+  border-radius: 32px;
+  background: linear-gradient(135deg, #ff6a4d, #ff3d7f 55%, #7b5cff);
+  box-shadow: 0 18px 50px -12px rgba(255, 61, 127, .6);
+  animation: introbeat 1.1s .15s cubic-bezier(.34, 1.56, .64, 1) both;
+}
+.introlog svg { width: 60px; height: 60px; fill: #fff; filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .25)); }
+.introlog::before { /* anillo de luz que se expande */
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border: 3px solid #ff3d7f;
+  border-radius: 38px;
+  opacity: 0;
+  animation: introring 1s .45s ease-out both;
+}
+.introlog::after { /* brillo que cruza el logo */
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, .55) 50%, transparent 65%);
+  background-size: 250% 100%;
+  background-position: 120% 0;
+  animation: introshine .9s .7s ease-in-out both;
+}
+.introname {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  background: linear-gradient(90deg, #ff6a4d, #ff3d7f, #7b5cff, #ff6a4d);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: intronamein .7s .55s cubic-bezier(.2, .8, .2, 1) both, shimmer 3s .55s linear infinite;
+}
+@keyframes introbeat {
+  0% { transform: scale(.85); }
+  35% { transform: scale(1.12); }
+  60% { transform: scale(.97); }
+  100% { transform: scale(1); }
+}
+@keyframes introring {
+  0% { opacity: .9; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.9); }
+}
+@keyframes introshine { to { background-position: -120% 0; } }
+@keyframes intronamein {
+  from { opacity: 0; transform: translateY(10px); letter-spacing: .25em; filter: blur(6px); }
+  to { opacity: 1; transform: none; letter-spacing: -0.035em; filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .introlog, .introlog::before, .introlog::after, .introname, .authwall { animation: none !important; }
 }

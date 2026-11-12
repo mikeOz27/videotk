@@ -11,6 +11,18 @@ const $ = (id) => document.getElementById(id);
 const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 const APP_URL = IS_NATIVE ? 'https://mikeoz27.github.io/videotk/' : location.origin + location.pathname;
 
+// Intro con el logo (la activa el script del <head>): dura ~1.7 s y luego se desvanece mientras entra el login.
+(function finishIntro() {
+  const root = document.documentElement;
+  if (!root.classList.contains('show-intro')) return;
+  try { sessionStorage.setItem('videotk.intro', '1'); } catch { /* se verá de nuevo al recargar */ }
+  const quick = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  setTimeout(() => {
+    root.classList.add('intro-out');
+    setTimeout(() => root.classList.remove('show-intro', 'intro-out'), 550);
+  }, quick ? 300 : 1700);
+}());
+
 const ui = {
   authView: $('authView'), appView: $('appView'), authForm: $('authForm'), authEmail: $('authEmail'),
   authPassword: $('authPassword'), authBtn: $('authBtn'), authStatus: $('authStatus'),

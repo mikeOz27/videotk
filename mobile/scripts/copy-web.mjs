@@ -24,5 +24,8 @@ for (const [cdn, pkgPath, local] of LIBS) {
   cpSync(join(mobile, 'node_modules', pkgPath), join(www, local));
   html = html.replace(cdn, local);
 }
+// En la app la intro del logo sale siempre al abrir (window.Capacitor aún no existe cuando corre el <head>).
+if (!html.includes('<html lang="es">')) throw new Error('No se encontró <html lang="es"> en index.html para activar la intro.');
+html = html.replace('<html lang="es">', '<html lang="es" class="show-intro">');
 writeFileSync(join(www, 'index.html'), html);
 console.log(`Copiados a www/: ${FILES.join(', ')} + librerías locales`);

@@ -12,6 +12,12 @@
       var t = localStorage.getItem('videotk.theme');
       if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
     } catch (e) { /* sin preferencia guardada */ }
+    // Intro con el logo: solo al abrir la app (Android/iOS o instalada en la pantalla de inicio), una vez por apertura.
+    try {
+      var app = (window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform())
+        || matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+      if (app && !sessionStorage.getItem('videotk.intro')) document.documentElement.classList.add('show-intro');
+    } catch (e) { /* sin intro */ }
   </script>
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,6 +29,13 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div id="intro" class="intro" aria-hidden="true">
+    <div class="introlog">
+      <svg viewBox="0 0 48 48"><path d="M19 15.5v17a1.5 1.5 0 0 0 2.3 1.27l13.4-8.5a1.5 1.5 0 0 0 0-2.54l-13.4-8.5A1.5 1.5 0 0 0 19 15.5Z"/></svg>
+    </div>
+    <div class="introname">VideoTk</div>
+  </div>
+
   <section id="authView" class="auth" hidden>
     <div class="authbg" aria-hidden="true">
       <div id="authWall" class="authwall"></div>
