@@ -534,11 +534,57 @@ async function fetchMetadata(url) {
   return result;
 }
 
-function setThumb(img, placeholder, src) {
+// Color del cuadro de reemplazo, distinto por video pero siempre el mismo para cada uno.
+function paintPlaceholder(placeholder, seed) {
+  let x = 2166136261; // FNV-1a: un cambio pequeño en el link da un color muy distinto
+  for (const ch of String(seed || '')) x = Math.imul(x ^ ch.codePointAt(0), 16777619);
+  const h = (x >>> 0) % 360;
+  placeholder.style.setProperty('--h1', h);
+  placeholder.style.setProperty('--h2', (h + 55) % 360);
+}
+
+// Miniaturas que no cargaron (sin internet, o la red bloquea YouTube/TikTok): se reintentan
+// solas cada cierto tiempo, al volver la conexión y al volver a la app. Mientras tanto se ve el cuadro animado.
+const failedThumbs = new Map(); // img → src
+let thumbRetryTimer = 0;
+let thumbRetryDelay = 15000;
+
+function retryThumbs() {
+  clearTimeout(thumbRetryTimer);
+  thumbRetryTimer = 0;
+  for (const [img, src] of failedThumbs) {
+    if (!img.isConnected) { failedThumbs.delete(img); continue; }
+    img.src = src;
+  }
+  scheduleThumbRetry();
+}
+
+function scheduleThumbRetry() {
+  if (thumbRetryTimer || !failedThumbs.size || document.hidden) return;
+  thumbRetryTimer = setTimeout(retryThumbs, thumbRetryDelay);
+  thumbRetryDelay = Math.min(thumbRetryDelay * 2, 120000); // 15 s, 30 s, 1 min, 2 min…
+}
+
+window.addEventListener('online', () => { thumbRetryDelay = 15000; retryThumbs(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { clearTimeout(thumbRetryTimer); thumbRetryTimer = 0; } else if (failedThumbs.size) retryThumbs();
+});
+
+function setThumb(img, placeholder, src, seed) {
+  paintPlaceholder(placeholder, seed || src);
   placeholder.hidden = false;
   img.hidden = true;
-  img.onload = () => { img.hidden = false; placeholder.hidden = true; };
-  img.onerror = () => { img.hidden = true; placeholder.hidden = false; };
+  failedThumbs.delete(img);
+  img.onload = () => {
+    img.hidden = false;
+    placeholder.hidden = true;
+    if (failedThumbs.delete(img) && !failedThumbs.size) thumbRetryDelay = 15000;
+  };
+  img.onerror = () => {
+    img.hidden = true;
+    placeholder.hidden = false;
+    if (img.getAttribute('src')) { failedThumbs.set(img, img.getAttribute('src')); scheduleThumbRetry(); }
+  };
   if (src) img.src = src; else img.removeAttribute('src');
 }
 
@@ -546,7 +592,7 @@ function showPreview(meta, loading) {
   ui.preview.hidden = false;
   ui.previewSource.textContent = meta.source || hostOf(meta.url);
   ui.previewTitle.textContent = loading ? 'Buscando la preview…' : (meta.title || 'Sin título');
-  setThumb(ui.previewImg, ui.previewPh, meta.thumbnail);
+  setThumb(ui.previewImg, ui.previewPh, meta.thumbnail, meta.url);
 }
 
 function clearPreview() {
@@ -746,9 +792,10 @@ function renderCard(item) {
   img.draggable = false;
   img.loading = 'lazy';
   img.referrerPolicy = 'no-referrer';
-  const placeholder = el('span', 'ph', '▶');
+  const placeholder = el('span', 'ph');
+  placeholder.append(el('span', 'phplay'));
   thumb.append(img, placeholder);
-  setThumb(img, placeholder, item.thumbnail);
+  setThumb(img, placeholder, item.thumbnail, item.url);
 
   const meta = el('div', 'meta');
   const source = el('p', 'source', item.source);

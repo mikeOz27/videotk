@@ -613,7 +613,51 @@ a.button {
 .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 /* visibility y no display: una imagen lazy con display:none nunca se descarga */
 .thumb img[hidden] { visibility: hidden; }
-.ph { font-size: 30px; color: var(--muted); }
+/* Miniatura de reemplazo mientras la imagen carga o si no se puede (p. ej. la red bloquea YouTube):
+   un cuadro con degradado, un botón ▶ que late y un brillo que lo cruza. */
+.ph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: linear-gradient(135deg, hsl(var(--h1, 330) 70% 50%), hsl(var(--h2, 265) 60% 32%));
+}
+.ph[hidden] { display: none; }
+.ph::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .28) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: phshine 2.4s ease-in-out infinite;
+}
+.phplay {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .3);
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, .35);
+  animation: phpulse 1.8s ease-in-out infinite;
+}
+.phplay::after {
+  content: "";
+  position: absolute;
+  top: 13px;
+  left: 17px;
+  border-style: solid;
+  border-width: 9px 0 9px 14px;
+  border-color: transparent transparent transparent #fff;
+}
+@keyframes phshine { 60%, 100% { transform: translateX(100%); } }
+@keyframes phpulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, .35); }
+  50% { transform: scale(1.08); box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ph::after, .phplay { animation: none; }
+}
 
 .preview { margin-top: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; }
 .preview[hidden] { display: none; }
