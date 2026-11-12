@@ -17,10 +17,10 @@
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
-        <!-- Android 12+: fondo oscuro como la app y el ícono de VideoTk en el centro -->
+        <item name="android:background">@drawable/splash_bg</item>
+        <!-- Android 12+: solo el fondo oscuro (sin ícono); el logo aparece en la intro de la app -->
         <item name="windowSplashScreenBackground">#14151A</item>
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>
