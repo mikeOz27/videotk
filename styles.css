@@ -164,6 +164,7 @@ button:disabled { opacity: .55; cursor: default; }
   position: absolute;
   inset: -25% -30%;
   display: flex;
+  align-items: flex-start; /* cada columna mide lo que su contenido: así el -50% del bucle calza exacto y no hay corte */
   justify-content: center;
   gap: 14px;
   opacity: .5;
@@ -199,9 +200,9 @@ button:disabled { opacity: .55; cursor: default; }
   background: radial-gradient(circle at 35% 40%, rgba(255, 255, 255, .45), transparent 40%),
               radial-gradient(circle at 70% 70%, rgba(0, 0, 0, .35), transparent 45%);
 }
-/* Solo uno de cada tres cuadros "se mueve", para no cargar el teléfono */
-.walltile:nth-child(3n + 1)::before { animation: footage var(--p, 8s) ease-in-out var(--d, 0s) infinite alternate; }
-@keyframes footage { to { transform: translate(18%, -12%) scale(1.2); } }
+/* La luz de cada cuadro queda fija: animarla creaba una capa por cuadro y, al volver a la app,
+   Android tardaba en redibujarlas todas (el fondo "se cortaba" un instante). */
+.walltile.moving::before { transform: translate(12%, -8%) scale(1.1); }
 .wallplay {
   position: absolute;
   top: 50%;
@@ -240,18 +241,19 @@ button:disabled { opacity: .55; cursor: default; }
   width: 100%;
   background: #ff3d4f;
   transform-origin: left;
-  animation: wallprogress var(--p, 8s) linear var(--d, 0s) infinite;
+  transform: scaleX(var(--w, .4)); /* progreso fijo, distinto en cada cuadro (sin animar, por lo mismo) */
 }
-@keyframes wallprogress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+/* Con la app minimizada el fondo se pausa: al volver sigue justo donde estaba */
+html.bg-paused .auth,
+html.bg-paused .auth * { animation-play-state: paused !important; }
 /* Velo para que la tarjeta se lea bien encima del mosaico */
 .authbg::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse at center, var(--scene) 0%, color-mix(in srgb, var(--scene) 70%, transparent) 45%, transparent 100%);
-}
-@supports not (background: color-mix(in srgb, red, blue)) {
-  .authbg::after { background: radial-gradient(ellipse at center, var(--scene) 0%, transparent 90%); opacity: .85; }
+  /* Velo parejo en toda la pantalla (sin óvalo en el centro, que hacía un efecto de marco) */
+  background: var(--scene);
+  opacity: .45;
 }
 
 .authwrap { width: min(100%, 400px); }

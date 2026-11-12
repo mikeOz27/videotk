@@ -1442,11 +1442,11 @@ function renderOtp() {
     for (let t = 0; t < 14; t += 1) {
       n += 1;
       const [h1, h2] = hues[(n * 5 + c) % hues.length];
-      const tile = el('div', `walltile${(n + c) % 4 === 0 ? ' tall' : ''}`);
+      // Clases (no :nth-child) para que la copia del bucle sea idéntica y no se note el reinicio.
+      const tile = el('div', `walltile${(n + c) % 4 === 0 ? ' tall' : ''}${t % 3 === 0 ? ' moving' : ''}`);
       tile.style.setProperty('--h1', h1);
       tile.style.setProperty('--h2', h2);
-      tile.style.setProperty('--p', `${6 + ((n * 7) % 11)}s`);
-      tile.style.setProperty('--d', `-${(n * 3) % 9}s`);
+      tile.style.setProperty('--w', (0.15 + ((n * 37) % 70) / 100).toFixed(2));
       tile.append(el('span', 'wallplay'), el('span', 'walltime', durs[n % durs.length]), el('span', 'wallbar'));
       tiles.push(tile);
     }
@@ -1454,6 +1454,9 @@ function renderOtp() {
     col.append(...tiles, ...tiles.map((t) => t.cloneNode(true)));
     wall.append(col);
   }
+  const pause = () => document.documentElement.classList.toggle('bg-paused', document.hidden);
+  document.addEventListener('visibilitychange', pause);
+  pause();
 }());
 
 const AUTH_SCREENS = {
