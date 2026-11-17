@@ -9,7 +9,9 @@ const $ = (id) => document.getElementById(id);
 // Dentro de la app de Android/iOS (Capacitor) la página vive en https://localhost:
 // los enlaces de los correos (confirmar cuenta, cambiar contraseña) deben ir a la web publicada.
 const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-const APP_URL = IS_NATIVE ? 'https://mikeoz27.github.io/videotk/' : location.origin + location.pathname;
+const APP_URL = CONFIG.siteUrl || (IS_NATIVE ? 'https://mikeoz27.github.io/videotk/' : location.origin + location.pathname);
+// 'supabase' (por defecto) o 'api': el backend propio de la carpeta server/ (ver config.js).
+const USE_API = CONFIG.backend === 'api';
 
 // Intro con el logo (la activa el script del <head>): dura ~1.7 s y luego se desvanece mientras entra el login.
 (function finishIntro() {
@@ -41,7 +43,7 @@ const ui = {
   catsStatus: $('catsStatus'), catsList: $('catsList'), catsEmpty: $('catsEmpty'),
 };
 
-let db = null;           // cliente de Supabase
+let db = null;           // cliente de Supabase o de la API propia (misma forma de uso)
 let user = null;         // usuario con sesión iniciada
 let items = [];
 let cats = [];           // categorías del usuario: [{ id, name }]
@@ -1913,10 +1915,11 @@ async function init() {
   readSharedLink();
   render();
 
-  if (!window.supabase || !CONFIG.supabaseUrl || !CONFIG.supabaseKey) {
+  const libReady = USE_API ? Boolean(window.VideoTkApi) : Boolean(window.supabase);
+  if (!libReady || (!USE_API && (!CONFIG.supabaseUrl || !CONFIG.supabaseKey))) {
     showView(false);
     ui.authBtn.disabled = true;
-    setAuthStatus(window.supabase
+    setAuthStatus(libReady
       ? 'Falta poner los datos de Supabase en config.js.'
       : 'No se pudo cargar la app. Revisa tu conexión y recarga.', true);
     return;
@@ -1929,7 +1932,9 @@ async function init() {
   if (linkParams.get('type') === 'recovery' || pending) setRecovering(true);
   const linkError = linkParams.get('error_code') || linkParams.get('error');
 
-  db = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey);
+  db = USE_API
+    ? window.VideoTkApi.createClient(CONFIG.apiUrl)
+    : window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey);
   // setTimeout: Supabase recomienda no llamar a la base de datos dentro de este aviso.
   db.auth.onAuthStateChange((event, session) => {
     if (event === 'PASSWORD_RECOVERY') setRecovering(true);

@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'videoteca-v24';
+const CACHE = 'videoteca-v25';
 const SUPABASE_LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
 const SWAL_LIB = 'https://cdn.jsdelivr.net/npm/sweetalert2@11.14.5/dist/sweetalert2.all.min.js';
 const PINNED = [SUPABASE_LIB, SWAL_LIB];
@@ -10,6 +10,7 @@ const SHELL = [
   'styles.css',
   'app.js',
   'config.js',
+  'api-client.js',
   'manifest.webmanifest',
   'icons/icon-192.png',
   'icons/icon-512.png',
@@ -39,8 +40,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Las llamadas a Supabase y a otros sitios no pasan por aquí.
-  if (new URL(request.url).origin !== location.origin) return;
+  // Las llamadas a Supabase, a la API propia y a otros sitios no pasan por aquí.
+  const url = new URL(request.url);
+  if (url.origin !== location.origin || url.pathname.includes('/api/')) return;
 
   // Archivos de la app: red primero para recibir actualizaciones; caché si no hay conexión.
   event.respondWith(

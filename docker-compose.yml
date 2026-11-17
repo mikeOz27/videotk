@@ -1,0 +1,39 @@
+# VideoTk con Docker: web + API en http://localhost:3000
+#
+#   docker compose up -d --build                    → con SQLite (datos en el volumen videotk-data)
+#   docker compose --profile postgres up -d --build → con PostgreSQL (descomenta las 2 líneas de "app")
+#
+# Los datos del correo (SMTP_*) y demás se leen de server/.env si existe.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: server/.env
+        required: false
+    environment:
+      DATA_DIR: /data
+      # Para usar el PostgreSQL de abajo, descomenta estas dos líneas:
+      # DB_CLIENT: postgres
+      # DATABASE_URL: postgres://videotk:videotk@db:5432/videotk
+    volumes:
+      - videotk-data:/data
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    profiles: [postgres]
+    environment:
+      POSTGRES_USER: videotk
+      POSTGRES_PASSWORD: videotk
+      POSTGRES_DB: videotk
+    volumes:
+      - videotk-pg:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  videotk-data:
+  videotk-pg:

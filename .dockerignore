@@ -1,0 +1,9 @@
+.git
+.github
+.claude
+.idea
+mobile
+server/node_modules
+server/data
+server/.env
+**/*.md

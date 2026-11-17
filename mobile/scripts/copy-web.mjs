@@ -8,7 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const mobile = join(here, '..');
 const root = join(mobile, '..');
 const www = join(mobile, 'www');
-const FILES = ['index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'icons'];
+const FILES = ['index.html', 'styles.css', 'app.js', 'api-client.js', 'config.js', 'manifest.webmanifest', 'icons'];
 const LIBS = [
   ['https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js', '@supabase/supabase-js/dist/umd/supabase.js', 'vendor/supabase.js'],
   ['https://cdn.jsdelivr.net/npm/sweetalert2@11.14.5/dist/sweetalert2.all.min.js', 'sweetalert2/dist/sweetalert2.all.min.js', 'vendor/sweetalert2.all.min.js'],
